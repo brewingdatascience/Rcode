@@ -1,2 +1,2 @@
 # Rcode
-subdirectories include:  tidy, transform, visualize, model
+files include:  tidy, transform, visualize, model
