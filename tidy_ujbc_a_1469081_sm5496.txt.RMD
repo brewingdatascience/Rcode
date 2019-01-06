@@ -1,0 +1,322 @@
+---
+title: "R Notebook: ASBC2019 Workshop PartX: Data Import from csv file"
+output: html_notebook
+---
+
+data analysis is the process by which data becomes understanding, knowledge and insight
+             -Hadley Wickham
+
+
+#Intro
+This is a walkthrough of csv data import, using "ujbc_a_1469081_sm5496.txt" (supplementary data from Jacob A. Kirkendall, Carter A. Mitchell & Lucas R. Chadwick (2018): The Freshening Power of Centennial Hops, Journal of the American Society of Brewing Chemists DOI: 10.1080/03610470.2018.1469081  https://doi.org/10.1080/03610470.2018.1469081)
+Downloaded from https://ndownloader.figshare.com/files/11921120 via https://www.tandfonline.com/doi/suppl/10.1080/03610470.2018.1469081?scroll=top
+
+*note that while this has been saved as a ".txt" file (typically tab-delimited) it does indeed have comma separated values.  R doesn't care about file extensions.  R will [try to] do whatever you tell it, to whatever files you tell it.
+
+First some housekeeping with R Notebooks.  To control package loading in R Notebooks, it's best to load them all as a separate code chunk.  That's what this is  ( we will use dpyr package as always, and use chron package to deal with some odd time formats:
+```{r}
+.rs.restartR()  # restart R 
+
+#install.packages("chron")   ## library chron for converting fractional days to AM/PM/24HR/etc times
+library(chron)  
+
+#install.packages("dplyr")
+library(dplyr)
+
+#formating tables
+#library(xtable)
+
+#data wrangling
+#library(dplyr)
+
+#text processing
+#library(stringi)
+
+```
+
+
+
+
+Here we'll import the same data (comma-separated .txt file) using read.csv (base R) a few different ways, then compare the results.
+
+```{r}
+## some more house keeping  (this is a comment)  
+rm(list = ls()) # clear workspace
+#setwd(file(choose.dir()))    ### Attention:  Know your working directory!
+getwd()                       ###  Verify your working directory!
+
+## import method #1 - read.csv
+imp1 <-read.csv("ujbc_a_1469081_sm5496.txt")  ## SPECIFY filename
+
+## if you want to edit data within R
+manual_edit <- edit(imp1)       ## manual data editing
+
+## read.csv with some basic options
+imp2 <-read.csv("ujbc_a_1469081_sm5496.txt",     ## SPECIFY filename
+                  header = TRUE, 
+                  sep = ",", 
+                  strip.white = TRUE,
+                  #stringsAsFactors = TRUE, 
+                  as.is = TRUE,
+                  na.strings = c("","NA"))
+```
+
+
+# 5-step csv import
+1 read.csv
+2 inspect imported data
+3 convert data types as necessary
+4 inspect converted data
+5 (optional) write.csv and saveRDS
+
+## 1 read.csv
+```{r}
+rm(list = ls()) # clear workspace
+## 1 read.csv
+mydata <-read.csv("ujbc_a_1469081_sm5496.txt",stringsAsFactors = FALSE)  ## SPECIFY filename
+
+## 2 inspect imported data
+###  this is a routine for inspecting imported data ###
+mydatatypes<- as.data.frame(cbind(sapply(mydata, class)))  ## table of datatypes
+mydatatypes$headers <- rownames(mydatatypes)    ## convert rownames to values
+na_count <-as.data.frame(sapply(mydata, function(y) sum(length(which(is.na(y)))))) ## count NAs by column
+mydataOverview<-as.data.frame(cbind(na_count,mydatatypes))  ## table of NAs counts and datatypes
+names(mydataOverview) <- c("NA_count","Data_Class", "Header")
+sum(is.na(mydata))  ## total count of NA values in entire sheet (231 in this case)
+mydataOverview %>% filter(NA_count>0)    ## breakdown of NA values
+```
+
+##2 inspect imported data
+* header names are meaningful  (check)
+* no spaces or special characters in headers (check)
+* no unexpected NA values (check)
+* data types look OK (almost...
+
+By adding stringsAsFactors = FALSE option in the read.csv function any column that can't be interpreted as numeric, integer, or logical will be imported as "character" which is useful for dplyr operations. We only need to convert date columns from "character" to "POSIXct" format (timestamp format in R).  Having our dates in POSIXct will facilitate the process of subtracting timestamps from eachother and creating some useful "hour" and/or "day" variables, and generally allow us to do time- or date-based calculations. 
+
+
+
+## 3 convert data types in our dataframe ("character" date/time formats to "POSIXct" datetime timestamps)
+```{r}
+mydata177x31<-mydata
+### note: this is a base R data wrangling exercise! in general it's best to use 1) clean,tidy data in general and 2) lubridate packages for anything date-related! 
+
+## can do one at a time (here we're creating new columns in POSIXct format, based on the particular date format used in the source data (ujbc_a_1469081_sm5496.txt; see ?as.POSIXct):
+x_brew_date.POSIXct<- as.POSIXct(mydata$brew_date, format = "%m/%d/%Y") # as a standalone vector (USELESS here), or:
+mydata$brew_date.POSIXct <-as.POSIXct(mydata$brew_date, format = "%m/%d/%Y")  # as a "new column" in our dataframe
+  
+## or, we can take advantage of the pattern that of our (character) date/time columns have the string "date" in the headername.  First make character vector of all column names containing string "date":
+datecols<- dput(names(select(mydata, matches("date"))))  ## headers containing string "date"
+# this forloop will (attempt to) convert datecols (define above) into POSIXct format (R datetime format).  In general they say it's  ### best to avoid forloops ### use functions from lubridate/etc packages with specific tools for the task at hand)!! ###
+for (icol in datecols) {
+  newcol = paste0(icol,".POSIXct")
+  print(newcol)
+  mydata[, newcol] = as.POSIXct(mydata[, icol],format = "%m/%d/%Y") ###  CREATE NEW columns with POSIXct   
+#  mydata[, newcol] = as.POSIXct(as.numeric(mydata[, icol])  * (60*60*24), origin="1899-12-30") ###  microsoft times
+}
+
+# create testtime column by merging Test_Date and Test.time columns 
+mydata$testtime<- paste0(mydata$Test_Date," ",mydata$Test.time)   ### concatenate date & time with paste0 function
+mydata$testtime<- strptime(mydata$testtime, "%m/%d/%Y %I:%M %p")  ### date/time pattern for these particular data ; see ?strptime for description
+
+###  this is a routine for inspecting imported data ###
+mydatatypes<- as.data.frame(cbind(sapply(mydata, class)))  ## table of datatypes
+mydatatypes$headers <- rownames(mydatatypes)    ## convert rownames to values
+na_count <-as.data.frame(sapply(mydata, function(y) sum(length(which(is.na(y)))))) ## count NAs by column
+mydataOverview<-as.data.frame(cbind(na_count,mydatatypes))  ## table of NAs counts and datatypes
+names(mydataOverview) <- c("NA_count","Data_Class", "Header")
+sum(is.na(mydata))  ## total count of NA values in entire sheet (231 in this case)
+mydataOverview %>% filter(NA_count>0)    ## breakdown of NA values
+```
+
+
+57 NAs in testtime???  Impossible.  Something is wrong with the code or the data.
+
+# POP QUIZ 
+Is there a problem with the code, or a problem with the data?  Or both?   
+
+
+## 3 convert data types ("character" date/time formats to "POSIXct" datetime timestamps) (Revisited)
+```{r}
+mydata177x37<-mydata
+mydata<-mydata177x37
+write.csv(mydata, "what_is_wrong_with_these_times.csv") ## export/inspect in excel if that's more familiar
+
+#the root of the problem:  Test.time is a mixture of AM/PM and 'fraction-of-a-day' time formats
+#need to fix that 
+# In "real life" for justa  few rows like this I'd probably just fix manually in excel.  But for us that would be cheating (and would make this analysis irreproducible!).  So here's the plan:
+# 1) convert AM/PM times to 24hr time (assign to "dummy1" variable)
+# 2) convert fraction-of-day time to 24hr time  (assign to "dummy2" variable)
+# 3) replace NAs in dummy1 with values in dummy2 (assign to "dummy3" variable)
+# note: strptime function converts times-of-day to POSIX (and appends today's date and therefore creates 'bogus' dates in dummy vars above) 
+# 4) replace bogus dates with actual dates by converting dummy3 to date and subtracting that from (original) dummy3 (leaving only the time), then adding actual date (Test_Date)
+## 1) convert AM/PM characters to POSIX:
+mydata$dummy1<- strptime(mydata$Test.time, "%I:%M %p")                     # AM/PM characters (dummy1)
+## 2) convert fraction-of-day values to POSIX:                             # fraction-of-day numbers (dummy2)
+mydata$dummy2<- strptime(times(as.numeric(mydata$Test.time)),"%H:%M:%S")   # make sure chron package is loaded!
+# 3) replace NAs in dummy1 with values in dummy2
+# rather than overwrite dummy1 (so you can still see exactly what the strptime functions did), create dummy3 
+mydata$dummy3<- mydata$dummy1                                              
+# replace NAs in dummy3 with values in dummy2
+mydata$dummy3[is.na(mydata$dummy3)] <- as.character(mydata$dummy2[is.na(mydata$dummy3)])  # merge
+# 4) replace bogus dates with actual dates:
+mydata$testtime<- as.POSIXct(mydata$dummy3) - as.POSIXct(as.Date(format(mydata$dummy3))) + as.POSIXct(mydata$Test_Date,format = "%m/%d/%Y")-5*60*60
+mydata %>% select(contains("time"), Test_Date.POSIXct) %>% slice(115:125)    ### use slice to show rows with both test.time formats
+```
+In that last dplyr expression we used "slice" to show rows by number (these particular rows were selected so you can see that both test.time formats were correctly converted to POSIXCTtime
+
+```{r}
+
+
+mydata177x40<-mydata
+
+
+###  this is a routine for inspecting imported data ###
+mydatatypes<- as.data.frame(cbind(sapply(mydata, class)))  ## table of datatypes
+mydatatypes$headers <- rownames(mydatatypes)    ## convert rownames to values
+na_count <-as.data.frame(sapply(mydata, function(y) sum(length(which(is.na(y)))))) ## count NAs by column
+mydataOverview<-as.data.frame(cbind(na_count,mydatatypes))  ## table of NAs counts and datatypes
+names(mydataOverview) <- c("NA_count","Data_Class", "Header")
+sum(is.na(mydata))  ## total count of NA values in entire sheet (231 in this case)
+mydataOverview %>% filter(NA_count>0)    ## breakdown of NA values
+
+## Now remove useless columns:
+noquote(dput(names(mydata)))  ## print list of header names without quotes (for copy/paste)
+mydata <- mydata %>% select(-brew_date, -sample_collection_date,-dryhop_date,-Test_Date,-Test.time,-contains("dummy"))
+
+## Create new column 'exptfactor' (copy of 'expt' coerced as factor data type; 
+# this will be used to compare of factor vs. character data types
+mydata$exptfactor<-as.factor(mydata$expt)
+
+## And rearrange columns (experimental factors on the left, then measurements, followed by calculations and finally all the date columns on the right):
+mydata <- mydata %>% 
+  select(sample_id, expt, exptfactor, sample_group, special_group, special_conditions, hop, BINhop, Hop_type, volume_mL, mg_hops, temp.C, 
+         ABV, ABW, OE, Er, Ea, SG, RDF, ADF, Calories, 
+         dhop_day, contact_days, REF_NH, ABV_increase, 
+         brew_date.POSIXct, sample_collection_date.POSIXct, dryhop_date.POSIXct, Test_Date.POSIXct, testtime)
+
+## A last widdle to remove ".POSIXct" from these headers (as this will just add to confusion if/when we reimport this dataset from .csv and these become character columns!)
+## this removes ".POSIXct" from the column **names**
+colnames(mydata) = gsub(".POSIXct", "", colnames(mydata))
+dput(names(mydata))  # for copy/paste
+# names(mydata)<- c("sample_id",...)
+
+# Here's a function to assign column classes  (overkill for our dataset, but can be useful in some cases)
+## we'll use it to change a few character columns to factors, some integers (mg and mL) to numeric, and the dates from POSIXct to Date format (which is a more accurate reflection of the data in this case).
+
+
+YOmydata177x30<-mydata
+mydata<-YOmydata177x30
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## from Tommy:  https://stackoverflow.com/questions/9214819/supply-a-vector-to-classes-of-dataframe
+colClasses <- function(d, colClasses) {
+    colClasses <- rep(colClasses, len=length(d))
+    d[] <- lapply(seq_along(d), function(i) switch(colClasses[i], 
+        numeric=as.numeric(d[[i]]), 
+        character=as.character(d[[i]]), 
+        Date=as.Date(d[[i]], origin='1970-01-01'), 
+        POSIXct=as.POSIXct(d[[i]], origin='1970-01-01'), 
+        factor=as.factor(d[[i]]),
+        as(d[[i]], colClasses[i]) ))
+    d
+}
+# to use the function we need to create a character vector called "colClasses"
+# we could type it by hand (something like this):
+mycolclasses<- c("character", "character", "factor", "character", "character",    
+                 "character", "character", "factor", "factor", "numeric",           ## changed a few
+                 "numeric", "numeric", "numeric", "numeric", "numeric", "numeric",  ## changed a few more
+                 "numeric", "numeric", "numeric", "numeric", "numeric", "integer",   
+                 "integer", "numeric", "numeric", "Date", "Date", "Date",           ## somre more
+                 "Date", "POSIXct"                                                  ## two more
+)
+# and/or use dput and sapply(class) to copy/paste into the ballpark:
+makealist<-sapply(mydata,class)  ## sadly, the result is a *list* 
+extractfromlist<-as.data.frame(sapply(makealist,function(x) x[1]))  ## extract our column classes
+dput(as.character(extractfromlist[,1]))  ## make character vector of existing column classes (for copy/paste) 
+## before running the next line, compare mycolclasses above with the output below. 
+```
+
+We're only changing a few character columns to factors, some integers (mg and mL) to numeric, the dates from POSIXct to Date format (which is a more accurate reflection of the data in this case), and finally changing POSIXlt to POSIXct.  Google why. Just beware time-zone-related insanity when converting various date/POSIX formats.
+
+
+# what is control+leftclick?    (brought up some paste-related function in a new window...?)
+
+```{r}
+## and finally, apply the function we created above using the mycolclasses vector we created above:  
+manuallycoerced_datatypes<- colClasses(mydata,mycolclasses)
+
+
+## now export (write) to rds and csv file
+write.csv(manuallycoerced_datatypes,"MyPreparedData.csv", row.names = FALSE)
+saveRDS(manuallycoerced_datatypes, "MyPreparedData.rds")
+#saveRDS(mydata, file = "1.rds", ascii = FALSE, version = NULL,compress = TRUE, refhook = NULL)
+
+## and finally re-import data from said file
+mydatafromRcsv<-read.csv("MyPreparedData.csv")  #,strip.white = TRUE; stringsAsFactors = FALSE,as.is = TRUE,  na.strings = c("","NA"))
+mydatafromRDS<- readRDS("MyPreparedData.rds") 
+```
+
+#Recap
+We've just done a bunch of data wrangling. We fixed some typos and got our data in the order and formats we want, then saved the result to to disk using read.csv and saveRDS functions with various options (rownames).  We then created new objects from our saved files, again using various options (stringsAsFactors, strip.white, na.strings).  These impacts of these options on subsequent analyses cannot be over-stressed. 
+
+As stated above, the method(s) we use to import, save, load data into R will impact (and largely define) our data types, so now we take a close look at data types in the objects we just created.
+
+#table comparing import/save/load methods
+```{r}
+
+## make table comparing the import methods
+V1V2<-as.data.frame(cbind((sapply(mydata, class)),(sapply(mydatafromRcsv,class))))
+### TANGENT:  the as.data.frame(cbind(sapply)) sequence above returns and object (V1V2) that:
+#       -appears in top data window as "36 obs. of 2 variables"
+#       -drilldown in data window shows two elements ("V1:List of 36" and "V2:List of 36")
+#       -view(V1V2) looks like a nice table with two columns (V1 and V2) and row names are headers in mydata
+#       -is very resistant to behaving like a table that can be sorted or filtered
+# the goal is to "filter" this object to show only "rows" where V1 != V2  
+#                NOTE:   != means "does not equal"
+# (in other words the goal is to only show the problematic variables that change classes when saving and reimporting csv files, i.e. the five date/time columns)
+# the following suggested solutions have not worked
+#do.call(rbind.data.frame, V1V2)  ## Error ...invalid list argument: all variables should have the same length
+#data.frame(matrix(unlist(V1V2), nrow=36, byrow=T),stringsAsFactors=FALSE) ## data length [77] is not a sub-multiple or multiple of the number of rows [36]
+## note 77 = 36*2+5 (just want our 36x2 table, but it doesn't seem to know where to put the 5 "POSIX" artefacts)
+#do.call(cbind.data.frame, V1V2)  # gives 2x72 double-wide
+#Filter(function(x) all(c("date", "time") %in% rownames(x)), V1V2) # ??
+# this is it:
+#df1 <-as.data.frame(unlist(V1V2["V1"]))  ## 41 obs of 1 variable
+#df2 <-as.data.frame(unlist(V1V2["V2"]))  ## 36 obs of 1 variable
+#  next step would be to remove the POSIXt elements from df1, but EFF THAT and its stupid classes
+#df<-as.data.frame(cbind(df1,df2))
+### END TANGENT... Point being that if we export to csv, then reimport, we have to reassign POSIXct (date/time) classes.
+
+
+```
+
+This 'data.frame' object "finaldataset" will be used (and renamed "mydata") for subsequent analyses...
+
+```{r}
+##from csv or rds  <-readRDS("MyPreparedData.rds"...
+rm(list = ls()) # clear workspace
+#mydata <-read.csv("MyPreparedData.csv",stringsAsFactors = FALSE)  ## note CSV doesn't preserve data classes!
+mydata<- readRDS("MyPreparedData.rds") 
+mydata$expt<- gsub(" ","", mydata$expt)             # remove some persistentwhitespace
+mydata$exptfactor<- gsub(" ","", mydata$exptfactor) # remove whitespace(note it converts to character)
+mydata$exptfactor <-  as.factor(mydata$exptfactor)  # convert back to factor
+mydata$Hop_type<- gsub(" ","", mydata$Hop_type)     # remove whitespace
+mydata$Hop_type <-  as.factor(mydata$Hop_type)      # convert back to factor
+str(mydata)
+```

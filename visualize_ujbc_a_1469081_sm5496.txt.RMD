@@ -1,0 +1,293 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# rename to data visualization!
+
+# IMPUTE impute is keyword for sampling from mean/sd data
+
+
+data analysis is the process by which data becomes understanding, knowledge and insight
+             -Hadley Wickham
+
+
+
+#Intro
+This continues from 
+
+# make link!  transform....RMD notebook
+
+where we walked through the process of
+*importing and cleaning data
+*creating new variables
+*creating summaries based on these variables
+
+Now we visualize the data!
+
+*(supplementary data from Jacob A. Kirkendall, Carter A. Mitchell & Lucas R. Chadwick (2018): The Freshening Power of Centennial Hops, Journal of the American Society of Brewing Chemists DOI: 10.1080/03610470.2018.1469081  https://doi.org/10.1080/03610470.2018.1469081)
+Downloaded from https://ndownloader.figshare.com/files/11921120 via https://www.tandfonline.com/doi/suppl/10.1080/03610470.2018.1469081?scroll=top
+
+
+# Restart R and Load packages:
+```{r}
+
+.rs.restartR()  # restart R  
+
+#{r results ='asis', echo=FALSE, include=FALSE}
+#knitr::opts_chunk$set(echo = TRUE, warning=FALSE)
+
+
+#install.packages("chron")   ##  chron for converting fractional days to AM/PM/24HR/etc times
+#library(chron)  
+## install.packages("lubridate")  # lubridate for dates/times in general
+# library(lubridate)
+
+#install.packages("dplyr")  # dplyr "data plyer" for slicing and dicing 
+library(dplyr)
+
+#formating tables
+#library(xtable)
+#install.packages("flextable")
+library(flextable)
+#install.packages("magrittr")
+library(magrittr)
+
+#install.packages("caret")
+library(caret)
+#install.packages("psych")
+library(psych)
+#data wrangling
+#library(dplyr)
+
+#text processing
+#library(stringi)
+
+```
+
+# import data
+```{r}
+##start with RDS output from ASBC2019_NoteBook_csv data import.RMD
+##from saved rds file
+rm(list = ls()) # clear workspace
+#mydata <-read.csv("MyPreparedData.csv",stringsAsFactors = FALSE)  ## note CSV doesn't preserve data classes!
+mydata<- readRDS("MyPreparedData.rds") 
+mydata$expt<- gsub(" ","", mydata$expt)             # remove some persistentwhitespace
+mydata$exptfactor<- gsub(" ","", mydata$exptfactor) # remove whitespace(note it converts to character)
+mydata$exptfactor <-  as.factor(mydata$exptfactor)  # convert back to factor
+mydata$Hop_type<- gsub(" ","", mydata$Hop_type)     # remove whitespace
+mydata$Hop_type <-  as.factor(mydata$Hop_type)      # convert back to factor
+
+# broken andornot codechunk: 
+##### NEVER FORGET:   It was a god dang space.  " 1A". ###############################
+#mydata%>% filter(hop=="NH"&(expt==" 1A"|expt=="1B"))   ##  WHERE DID THE SPACE COME FROM??
+########################################################################################
+# rootcause was whitespace being added in front of 1A 1B etc expt groups
+##  WHY WAS IT NOT STRIPPED OFF WITH strip.white = TRUE
+## effin hell.
+
+#canarycode: broken andornot codechunk: 
+mydata%>% filter((expt==" 1A"|expt=="1B")&hop=="NH")   ## ORs and ANDs  (3rows)
+mydata%>% filter((expt=="1A"|expt=="1B")&hop!="NH")   ## ORs and NOT   (30 rows)
+mydata%>% filter(hop=="NH" & expt=="1A")              ## AND   (3 rows)
+mydata%>% filter(BINhop==1 & expt=="1A")              ## AND   (15 rows)
+mydata%>% filter(Hop_type=="CASC" | Hop_type=="AMAR") ## OR    (12 rows)
+str(mydata)
+```
+* Note:  read.csv and readRDS are both adding space in front of expt group names ("1A" -> " 1A", etc)
+* Presumably there are other import oddities to behavior of these data (yet-to-be diagnosed) that relate to R environment.  (e.g. in some cases restarting Rstudio and/or Windows was a fix, and I doubt that this persistentwhitespace will be the last issue we encounter loading and preparing these data...)
+* moving on...
+
+## create new variables (variety, harvestyear,ox)
+```{r}
+
+mydata<- mydata %>% 
+  mutate(timeofaddition = as.numeric(difftime(dryhop_date,brew_date)),
+         daysonhops = as.numeric(difftime(Test_Date,dryhop_date)),
+         hops_g_100mL = (mg_hops/volume_mL)/10
+         )
+
+mydata$OX<-grepl("OX", mydata$Hop_type)           ##  create logical "OX" column
+mydata$Grind<-grepl("Grind", mydata$Hop_type)     ##  create logical column
+mydata$Cone<-grepl("Cone", mydata$Hop_type)       ##  create logical column
+mydata$harvest2014<-grepl("14", mydata$Hop_type)  ##  create logical column
+mydata$harvest2015<-grepl("15", mydata$Hop_type)  ##  create logical column
+mydata$harvest2017<-grepl("17", mydata$Hop_type)  ##  create logical column
+## ifelse statement for harvestyear (if neither 2014 nor 2015 nor 2017, then 2016)
+mydata$harvestYear <- ifelse(
+  mydata$harvest2014==TRUE, 2014,
+  ifelse(mydata$harvest2015==TRUE, 2015, 
+         ifelse(mydata$harvest2017==TRUE, 2017, 2016)))
+## ifelse statement for form of hops (if neither cone nor ground nor NH, then pellet) 
+mydata$form <- ifelse(
+  mydata$Cone==TRUE, "cone",
+  ifelse(mydata$Grind==TRUE, "ground",
+         ifelse(mydata$Hop_type=="NH", "NH", "pellet")))
+
+## ifelse statement for temperature greater or less than 10 
+mydata$temperature <- ifelse(
+  mydata$temp.C<10, "cold",
+  ifelse(mydata$temp.C>10, "warm", "something else"))
+
+## create "variety" column starting with "Hop_type" then stripping away all the non-variety information
+mydata$variety<-mydata$Hop_type
+mydata$variety<- gsub("17","", mydata$variety)
+mydata$variety<- gsub("16","", mydata$variety)
+mydata$variety<- gsub("15","", mydata$variety)
+mydata$variety<- gsub("14","", mydata$variety)
+mydata$variety<- gsub("OX","", mydata$variety)
+mydata$variety<- gsub("Grind","", mydata$variety)
+mydata$variety<- gsub("Cone","", mydata$variety)
+mydata$variety<- gsub(" ","", mydata$variety)
+
+## helper variable:  mean ABW for unhopped* samples in each experiment
+#first create a new variable (we will call it "EXPTnew"):  
+mydata$EXPTnew<-mydata$special_group                     # start with "special_group" column
+mydata$EXPTnew<- gsub("_CENT16|_NH","", mydata$EXPTnew)  # strip away strings with gsub
+# replaceNAs in newEXPT with values in expt
+mydata$EXPTnew[is.na(mydata$EXPTnew)] <- as.character(mydata$expt[is.na(mydata$EXPTnew)])  # merge
+# and finally compute mean by groups
+meanABW.REF_NH<- mydata %>% 
+  group_by(EXPTnew) %>%
+  filter(hop=="NH") %>%
+  summarise(ABW.REF_NH=mean(ABW))
+## compute mean increase in ABW relative to unhopped group in each experiment
+## join our data with mean ABV for unhopped samples in given experiment (meanABW.REF_NH)
+mydata<- left_join(mydata, meanABW.REF_NH, by="EXPTnew")
+
+## and with that finally we can compute "ABW_increase" (relative to samples that weren't dry-hopped) and "FPH" (ethanol increase expressed in terms of grams of EtOH produced per grams of dry-hop addition):
+mydata<- mydata %>% 
+  mutate(ABW_increase = ABW - ABW.REF_NH,   # relative to samples that weren't dry-hopped
+         FPH = ABW_increase/hops_g_100mL)   # g EtOH produced per g hops added
+
+dput(names(mydata))
+
+#finally some some cleanup
+mydata<-mydata %>% select(-Cone,-Grind, -starts_with("harvest20"))
+str(mydata)
+```
+
+
+
+#summary table sorted by FPH
+```{r}
+mydata %>% filter(hop=="DH")%>% group_by(EXPTnew, Hop_type, temperature) %>%
+  summarise_at(vars(ABW_increase, hops_g_100mL, FPH, daysonhops, timeofaddition, temp.C), 
+               funs(mean(., na.rm = TRUE),sd(., na.rm = TRUE))) %>%
+  arrange(desc(FPH_mean))
+```
+
+
+
+# look for correlations
+```{r}
+
+#mydata177x42<-mydata
+
+## remove some variables to clean up the view  (iterative process!)
+dput(names(mydata))
+mydata <- mydata%>% select("temp.C", "ABV", "ABW", "OE", "Er", "Ea", "SG", "RDF", 
+"ADF", "Calories", "dhop_day", "contact_days", "ABV_increase", 
+"timeofaddition", "daysonhops", "hops_g_100mL", "OX", 
+"harvestYear", "form", "temperature", "variety", "ABW_increase", "FPH") %>%
+  filter(FPH>0&FPH<10)
+
+
+
+## following  Manuel Amunategui  https://www.youtube.com/watch?v=igPQ-pI8Bjo
+## Using Correlations To Understand Your Data: Machine Learning With R 
+##functions for flattenSquareMatrix
+cor.prob <- function (X, dfr=nrow(X) -2) {
+  R<- cor(X, use="pairwise.complete.obs")
+  above<- row(R) < col(R)
+  r2 <- R[above]^2
+  Fstat<- r2 * dfr/(1-r2)
+  R[above] <- 1- pf(Fstat, 1, dfr)
+  R[row(R) == col(R)] <- NA
+  R
+}
+flattenSquareMatrix <- function(m) {
+  if( (class(m) != "matrix") | (nrow(m)!=ncol(m))) stop("Must be a square matrix.")
+  if(!identical(rownames(m), colnames(m))) stop("Row and column names must be equal.")
+  ut <- upper.tri(m)
+  data.frame(i = rownames(m)[row(m)[ut]],
+             j = rownames(m)[col(m)[ut]],
+             cor=t(m)[ut],
+             p=m[ut])
+}
+
+
+## library(caret) to dummify everything (turn all characters&factors into columns;  ignores numbers and integers)
+dmy<- dummyVars(" ~ .",data = mydata)
+mydummifieddata<- data.frame(predict(dmy, newdata = mydata))
+
+write.csv(mydummifieddata, "mydummydata.csv")
+
+corMat = cor(mydummifieddata)
+
+corMasterList<- flattenSquareMatrix(cor.prob(mydummifieddata))    ## list of all correlations
+corlist<- corMasterList[order(-abs(corMasterList$cor)),]  ## order by strength of correlation
+
+head(corlist,10)
+
+topcorrelations<- as.character(selectedSub$i[c(1:20)])
+dput(topcorrelations)
+
+write.csv(corlist,paste0("FLAT correlation matrix_.csv"))
+selectedSub<- subset(corlist, (abs(cor)> 0.2 & j == "FPH"))  ## select specific variable and 
+selectedSub
+
+```
+
+
+# pairs.panels FPH correlation matrix
+```{r}
+
+## specify interesting variables:  
+interestingvariables<-c("ADF", "Ea", "OE", "daysonhops", "dhop_day", "temp.C", "varietyCIT", "varietyCENT") 
+pairs.panels(mydummifieddata[c(interestingvariables, "FPH")])
+
+```
+
+# Export .png image of pairs.panels correlation matrix
+```{r}
+topcorrelations<- as.character(selectedSub$i[c(1:20)])
+dput(topcorrelations)
+
+## specify interesting variables:  
+interestingvariables<-c("ADF", "Ea", "OE", "daysonhops", "dhop_day", "temp.C", "varietyCIT", "varietyCENT") 
+png(
+  paste0("corecorrelations_FPH_.png"),
+  width     = 8,
+  height    = 4.25,
+  units     = "in",
+  res       = 400,
+  pointsize = 10
+)
+pairs.panels(mydummifieddata[c(interestingvariables, "FPH")])
+dev.off()
+
+```
+
+
+
+
+## some base R functions for reference
+
+```{r}
+
+## boxplots in base R
+boxplot(mydata$FPH)                                  ## Specify single vector, or
+boxplot(FPH~variety,data=mydata)                        ## Specify numeric~factor combination, or
+boxplot(FPH~variety*temperature, data=mydata)               ## Specify numeric~factor*factor combination
+boxplot(FPH~variety*temperature, data=mydata, las=2)        ## labels parallel (=0) or perpendicular(=2) to axis
+
+# Pearson's product-moment correlation
+cor.test(mydata$FPH, mydata$daysonhops) ## default = Pearson; if the p is low...
+
+# Kendall's rank correlation tau
+cor.test(mydata$FPH, mydata$daysonhops, method="kendall")  ## Kendall rank correlation
+
+# Spearman's rank correlation rho
+cor.test(mydata$FPH, mydata$daysonhops, method="spearman")  ## Spearman rank correlation
+```

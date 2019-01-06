@@ -1,0 +1,798 @@
+---
+title: "The Freshening Power of the Hop"
+output: html_notebook
+---
+
+
+data analysis is the process by which data becomes understanding, knowledge and insight
+             -Hadley Wickham
+
+# descriptive and exploratory analysis using dplyr
+## five verbs of dplyr (Wickham)
+* filter:  keep rows matching criteria
+* select:  pick columns by name
+* arrange: reorder rows (aka sort)
+* mutate:  add new variables 
+* summarise: reduce variables to values
+* group_by: (the 6th verb?)
+
+#Intro
+This based on "ujbc_a_1469081_sm5496.txt" (supplementary data from Jacob A. Kirkendall, Carter A. Mitchell & Lucas R. Chadwick (2018): The Freshening Power of Centennial Hops, Journal of the American Society of Brewing Chemists DOI: 10.1080/03610470.2018.1469081  https://doi.org/10.1080/03610470.2018.1469081)
+Downloaded 12/31/18 from https://ndownloader.figshare.com/files/11921120 via https://www.tandfonline.com/doi/suppl/10.1080/03610470.2018.1469081?scroll=top
+
+
+
+# intro text!
+if you care about what this means in a brewing context, first read the manuscript (link above).  This is simply an attempt to develop a metric such that "hop freshening power" can be incorporated into models of the warm-dryhopping process.  
+
+
+# Restart R and Load packages
+keep it simple for this one, just dplyr. and chron for funkytimes.
+```{r}
+.rs.restartR()  # restart R  
+
+install.packages("chron")   ##  chron for converting fractional days to AM/PM/24HR/etc times
+library(chron)  
+## install.packages("lubridate")  # lubridate for dates/times in general
+# library(lubridate)
+
+#install.packages("dplyr")  # dplyr "data plyer" for slicing and dicing 
+library(dplyr)
+
+#formating tables
+#library(xtable)
+#install.packages("flextable")
+#library(flextable)
+#install.packages("magrittr")
+#library(magrittr)
+
+#data wrangling
+#library(dplyr)
+
+#text processing
+#library(stringi)
+
+```
+
+# # 5-step csv import (entire tidy sequence) in one chunk)
+```{r}
+
+rm(list = ls()) # clear workspace
+## 1 read.csv
+mydata <-read.csv("ujbc_a_1469081_sm5496.txt",stringsAsFactors = FALSE)  ## SPECIFY filename
+
+## 2 inspect imported data
+###  this is a routine for inspecting imported data ###
+mydatatypes<- as.data.frame(cbind(sapply(mydata, class)))  ## table of datatypes
+mydatatypes$headers <- rownames(mydatatypes)    ## convert rownames to values
+na_count <-as.data.frame(sapply(mydata, function(y) sum(length(which(is.na(y)))))) ## count NAs by column
+mydataOverview<-as.data.frame(cbind(na_count,mydatatypes))  ## table of NAs counts and datatypes
+names(mydataOverview) <- c("NA_count","Data_Class", "Header")
+sum(is.na(mydata))  ## total count of NA values in entire sheet (231 in this case)
+mydataOverview %>% filter(NA_count>0)    ## breakdown of NA values
+
+mydata177x31<-mydata
+### note: this is a base R data wrangling exercise! in general it's best to use 1) clean,tidy data in general and 2) lubridate packages for anything date-related! 
+
+## can do one at a time (here we're creating new columns in POSIXct format, based on the particular date format used in the source data (ujbc_a_1469081_sm5496.txt; see ?as.POSIXct):
+x_brew_date.POSIXct<- as.POSIXct(mydata$brew_date, format = "%m/%d/%Y") # as a standalone vector (USELESS here), or:
+mydata$brew_date.POSIXct <-as.POSIXct(mydata$brew_date, format = "%m/%d/%Y")  # as a "new column" in our dataframe
+  
+## or, we can take advantage of the pattern that of our (character) date/time columns have the string "date" in the headername.  First make character vector of all column names containing string "date":
+datecols<- dput(names(select(mydata, matches("date"))))  ## headers containing string "date"
+# this forloop will (attempt to) convert datecols (define above) into POSIXct format (R datetime format).  In general they say it's  ### best to avoid forloops ### use functions from lubridate/etc packages with specific tools for the task at hand)!! ###
+for (icol in datecols) {
+  newcol = paste0(icol,".POSIXct")
+  print(newcol)
+  mydata[, newcol] = as.POSIXct(mydata[, icol],format = "%m/%d/%Y") ###  CREATE NEW columns with POSIXct   
+#  mydata[, newcol] = as.POSIXct(as.numeric(mydata[, icol])  * (60*60*24), origin="1899-12-30") ###  microsoft times
+}
+
+# create testtime column by merging Test_Date and Test.time columns 
+mydata$testtime<- paste0(mydata$Test_Date," ",mydata$Test.time)   ### concatenate date & time with paste0 function
+mydata$testtime<- strptime(mydata$testtime, "%m/%d/%Y %I:%M %p")  ### date/time pattern for these particular data ; see ?strptime for description
+
+###  this is a routine for inspecting imported data ###
+mydatatypes<- as.data.frame(cbind(sapply(mydata, class)))  ## table of datatypes
+mydatatypes$headers <- rownames(mydatatypes)    ## convert rownames to values
+na_count <-as.data.frame(sapply(mydata, function(y) sum(length(which(is.na(y)))))) ## count NAs by column
+mydataOverview<-as.data.frame(cbind(na_count,mydatatypes))  ## table of NAs counts and datatypes
+names(mydataOverview) <- c("NA_count","Data_Class", "Header")
+sum(is.na(mydata))  ## total count of NA values in entire sheet (231 in this case)
+mydataOverview %>% filter(NA_count>0)    ## breakdown of NA values
+
+mydata177x37<-mydata
+mydata<-mydata177x37
+write.csv(mydata, "what_is_wrong_with_these_times.csv") ## export/inspect in excel if that's more familiar
+
+#the root of the problem:  Test.time is a mixture of AM/PM and 'fraction-of-a-day' time formats
+#need to fix that 
+# In "real life" for justa  few rows like this I'd probably just fix manually in excel.  But for us that would be cheating (and would make this analysis irreproducible!).  So here's the plan:
+# 1) convert AM/PM times to 24hr time (assign to "dummy1" variable)
+# 2) convert fraction-of-day time to 24hr time  (assign to "dummy2" variable)
+# 3) replace NAs in dummy1 with values in dummy2 (assign to "dummy3" variable)
+# note: strptime function converts times-of-day to POSIX (and appends today's date and therefore creates 'bogus' dates in dummy vars above) 
+# 4) replace bogus dates with actual dates by converting dummy3 to date and subtracting that from (original) dummy3 (leaving only the time), then adding actual date (Test_Date)
+## 1) convert AM/PM characters to POSIX:
+mydata$dummy1<- strptime(mydata$Test.time, "%I:%M %p")                     # AM/PM characters (dummy1)
+## 2) convert fraction-of-day values to POSIX:                             # fraction-of-day numbers (dummy2)
+mydata$dummy2<- strptime(times(as.numeric(mydata$Test.time)),"%H:%M:%S")   # make sure chron package is loaded!
+# 3) replace NAs in dummy1 with values in dummy2
+# rather than overwrite dummy1 (so you can still see exactly what the strptime functions did), create dummy3 
+mydata$dummy3<- mydata$dummy1                                              
+# replace NAs in dummy3 with values in dummy2
+mydata$dummy3[is.na(mydata$dummy3)] <- as.character(mydata$dummy2[is.na(mydata$dummy3)])  # merge
+# 4) replace bogus dates with actual dates:
+mydata$testtime<- as.POSIXct(mydata$dummy3) - as.POSIXct(as.Date(format(mydata$dummy3))) + as.POSIXct(mydata$Test_Date,format = "%m/%d/%Y")-5*60*60
+mydata %>% select(contains("time"), Test_Date.POSIXct) %>% slice(115:125)    ### use slice to show rows with both test.time formats
+
+
+mydata177x40<-mydata
+
+
+###  this is a routine for inspecting imported data ###
+mydatatypes<- as.data.frame(cbind(sapply(mydata, class)))  ## table of datatypes
+mydatatypes$headers <- rownames(mydatatypes)    ## convert rownames to values
+na_count <-as.data.frame(sapply(mydata, function(y) sum(length(which(is.na(y)))))) ## count NAs by column
+mydataOverview<-as.data.frame(cbind(na_count,mydatatypes))  ## table of NAs counts and datatypes
+names(mydataOverview) <- c("NA_count","Data_Class", "Header")
+sum(is.na(mydata))  ## total count of NA values in entire sheet (231 in this case)
+mydataOverview %>% filter(NA_count>0)    ## breakdown of NA values
+
+## Now remove useless columns:
+noquote(dput(names(mydata)))  ## print list of header names without quotes (for copy/paste)
+mydata <- mydata %>% select(-brew_date, -sample_collection_date,-dryhop_date,-Test_Date,-Test.time,-contains("dummy"))
+
+## Create new column 'exptfactor' (copy of 'expt' coerced as factor data type; 
+# this will be used to compare of factor vs. character data types
+mydata$exptfactor<-as.factor(mydata$expt)
+
+## And rearrange columns (experimental factors on the left, then measurements, followed by calculations and finally all the date columns on the right):
+mydata <- mydata %>% 
+  select(sample_id, expt, exptfactor, sample_group, special_group, special_conditions, hop, BINhop, Hop_type, volume_mL, mg_hops, temp.C, 
+         ABV, ABW, OE, Er, Ea, SG, RDF, ADF, Calories, 
+         dhop_day, contact_days, REF_NH, ABV_increase, 
+         brew_date.POSIXct, sample_collection_date.POSIXct, dryhop_date.POSIXct, Test_Date.POSIXct, testtime)
+
+## A last widdle to remove ".POSIXct" from these headers (as this will just add to confusion if/when we reimport this dataset from .csv and these become character columns!)
+## this removes ".POSIXct" from the column **names**
+colnames(mydata) = gsub(".POSIXct", "", colnames(mydata))
+dput(names(mydata))  # for copy/paste
+# names(mydata)<- c("sample_id",...)
+
+# Here's a function to assign column classes  (overkill for our dataset, but can be useful in some cases)
+## we'll use it to change a few character columns to factors, some integers (mg and mL) to numeric, and the dates from POSIXct to Date format (which is a more accurate reflection of the data in this case).
+
+
+## from Tommy:  https://stackoverflow.com/questions/9214819/supply-a-vector-to-classes-of-dataframe
+colClasses <- function(d, colClasses) {
+    colClasses <- rep(colClasses, len=length(d))
+    d[] <- lapply(seq_along(d), function(i) switch(colClasses[i], 
+        numeric=as.numeric(d[[i]]), 
+        character=as.character(d[[i]]), 
+        Date=as.Date(d[[i]], origin='1970-01-01'), 
+        POSIXct=as.POSIXct(d[[i]], origin='1970-01-01'), 
+        factor=as.factor(d[[i]]),
+        as(d[[i]], colClasses[i]) ))
+    d
+}
+# to use the function we need to create a character vector called "colClasses"
+# we could type it by hand (something like this):
+mycolclasses<- c("character", "character", "factor", "character", "character",    
+                 "character", "character", "factor", "factor", "numeric",           ## changed a few
+                 "numeric", "numeric", "numeric", "numeric", "numeric", "numeric",  ## changed a few more
+                 "numeric", "numeric", "numeric", "numeric", "numeric", "integer",   
+                 "integer", "numeric", "numeric", "Date", "Date", "Date",           ## somre more
+                 "Date", "POSIXct"                                                  ## two more
+)
+# and/or use dput and sapply(class) to copy/paste into the ballpark:
+makealist<-sapply(mydata,class)  ## sadly, the result is a *list* 
+extractfromlist<-as.data.frame(sapply(makealist,function(x) x[1]))  ## extract our column classes
+dput(as.character(extractfromlist[,1]))  ## make character vector of existing column classes (for copy/paste) 
+## before running the next line, compare mycolclasses above with the output below. 
+
+## and finally, apply the function we created above using the mycolclasses vector we created above:  
+manuallycoerced_datatypes<- colClasses(mydata,mycolclasses)
+
+
+## now export (write) to rds and csv file
+write.csv(manuallycoerced_datatypes,"MyPreparedData.csv", row.names = FALSE)
+saveRDS(manuallycoerced_datatypes, "MyPreparedData.rds")
+#saveRDS(mydata, file = "1.rds", ascii = FALSE, version = NULL,compress = TRUE, refhook = NULL)
+
+## and finally re-import data from said file
+mydatafromRcsv<-read.csv("MyPreparedData.csv")  #,strip.white = TRUE; stringsAsFactors = FALSE,as.is = TRUE,  na.strings = c("","NA"))
+mydatafromRDS<- readRDS("MyPreparedData.rds") 
+```
+
+
+
+```{r}
+
+#canarycode: broken andornot codechunk: 
+mydata%>% filter((expt==" 1A"|expt=="1B")&hop=="NH")   ## ORs and ANDs  (3rows)
+mydata%>% filter((expt=="1A"|expt=="1B")&hop!="NH")   ## ORs and NOT   (30 rows)
+mydata%>% filter(hop=="NH" & expt=="1A")              ## AND   (3 rows)
+mydata%>% filter(BINhop==1 & expt=="1A")              ## AND   (15 rows)
+mydata%>% filter(Hop_type=="CASC" | Hop_type=="AMAR") ## OR    (12 rows)
+mydata%>% filter(is.na(special_group))                ## IS NA (93 rows) 
+mydata%>% filter(!is.na(special_group))               ## is NOT NA (84 rows) 
+mydata%>% filter(hop=="NH"&!is.na(dryhop_date))     ## notation for "is not NA" (42 rows)
+str(mydata)
+```
+* Note:  read.csv and readRDS are both adding space in front of expt group names ("1A" -> " 1A", etc)
+* Presumably there are other import oddities to behavior of these data (yet-to-be diagnosed) that relate to R environment.  (e.g. in some cases restarting Rstudio and/or Windows was a fix, and I doubt that this persistentwhitespace will be the last issue we encounter loading and preparing these data...)
+* moving on...
+
+# the five or six verbs of dplyr:  select, filter, mutate, summarise, arrange (and group_by)
+```{r}
+## unique hop types
+mydata%>% select(Hop_type) %>% unique() 
+
+##mean ABV by hop type
+mydata%>% group_by(Hop_type) %>% summarize(mean(ABV))  ## group and summarize
+```
+
+
+
+
+## create some new variables (variety, harvestyear,ox)
+```{r}
+mydata$OX<-grepl("OX", mydata$Hop_type)           ##  create logical "OX" column
+mydata$Grind<-grepl("Grind", mydata$Hop_type)     ##  create logical column
+mydata$Cone<-grepl("Cone", mydata$Hop_type)       ##  create logical column
+mydata$harvest2014<-grepl("14", mydata$Hop_type)  ##  create logical column
+mydata$harvest2015<-grepl("15", mydata$Hop_type)  ##  create logical column
+mydata$harvest2017<-grepl("17", mydata$Hop_type)  ##  create logical column
+## ifelse statement for harvestyear (if neither 2014 nor 2015 nor 2017, then 2016)
+mydata$harvestYear <- ifelse(
+  mydata$harvest2014==TRUE, 2014,
+  ifelse(mydata$harvest2015==TRUE, 2015, 
+         ifelse(mydata$harvest2017==TRUE, 2017, 2016)))
+## ifelse statement for form of hops (if neither cone nor ground nor NH, then pellet) 
+mydata$form <- ifelse(
+  mydata$Cone==TRUE, "cone",
+  ifelse(mydata$Grind==TRUE, "ground",
+         ifelse(mydata$Hop_type=="NH", "NH", "pellet")))
+## create "variety" column starting with "Hop_type" then stripping away all the non-variety information
+mydata$variety<-mydata$Hop_type
+mydata$variety<- gsub("17","", mydata$variety)
+mydata$variety<- gsub("16","", mydata$variety)
+mydata$variety<- gsub("15","", mydata$variety)
+mydata$variety<- gsub("14","", mydata$variety)
+mydata$variety<- gsub("OX","", mydata$variety)
+mydata$variety<- gsub("Grind","", mydata$variety)
+mydata$variety<- gsub("Cone","", mydata$variety)
+mydata$variety<- gsub(" ","", mydata$variety)
+
+#finally some some cleanup
+mydata<-mydata %>% select(-Cone,-Grind, -starts_with("harvest20"))
+str(mydata)
+```
+
+
+
+
+
+
+
+```{r}
+## "pivot table" with dplyr
+mydata%>% group_by(expt,Hop_type) %>% 
+  summarise_at(vars(ABV, Ea), 
+               funs(mean(., na.rm = TRUE), 
+                    sd(., na.rm = TRUE), 
+                    n()
+                    ))
+```
+
+
+
+```{r}
+## select columns
+mydata %>% select(1:2,16:19,22)        ## select columns by number
+mydata %>% select(starts_with("hop"))  ## select columns where header startwith
+mydata %>% select(contains("hop"))     ## select columns where header contains
+## note default: ignore.case = TRUE
+```
+
+
+
+```{r}
+## filter/grepl ("search") rows
+mydata %>% filter(., grepl('rouse', sample_group))  ## note default: ignore.case = FALSE
+mydata %>% filter(., grepl('23|99|x', sample_id))  ## filter/grepl rows where string contains
+## note default: ignore.case = FALSE
+```
+
+
+## advanced wrangling: find rows associated with (OX, cone, or grind) and harvest year (2015 or 2014) 
+```{r}
+## filter/grepl ("search") rows with andornot 
+mydata %>% filter(., grepl('ox|grind|cone!NH', Hop_type,ignore.case = TRUE)) %>%    ## orornot
+ filter(., grepl('14|15', Hop_type, ignore.case = TRUE))               ##  AND is separate/subsequent filter step!!
+```
+
+
+# the original 'canarycode'
+## combined filter (and/or/not/is.na)
+```{r}
+#mydatatemp<-mydata
+#mydata<-mydatafromRcsv
+
+# this was the code the clued me in to the space-adding, strip.white-failing behavior
+mydata%>% filter((expt=="1A"|expt=="1B")&hop=="NH")   ## ORs and ANDs  (6rows)
+mydata%>% filter((expt=="1A"|expt=="1B")&hop!="NH")   ## ORs and NOT   (30 rows)
+mydata%>% filter(hop=="NH" & expt=="1A")              ## AND   (3 rows)
+mydata%>% filter(BINhop==1 & expt=="1A")              ## AND   (15 rows)
+mydata%>% filter(Hop_type=="CASC" | Hop_type=="AMAR") ## OR    (12 rows)
+mydata%>% filter(is.na(special_group))                ## IS NA (93 rows) 
+mydata%>% filter(!is.na(special_group))               ## is NOT NA (84 rows) 
+mydata%>% filter(hop=="NH"&!is.na(dryhop_date))     ## notation for "is not NA" (42 rows)
+```
+
+
+
+## logicals+
+```{r}
+
+# isTRUE(x) is the same as { is.logical(x) && length(x) == 1 && !is.na(x) && x }; isFALSE() is defined analogously.
+
+isTRUE (1=1)   # Error: unexpected '='
+isTRUE (1==1)  # TRUE
+isFALSE(1==3)  # TRUE
+isFALSE(1==1)  # FALSE
+isTRUE (1==3)  # FALSE
+
+# extended canarycode andornot codechunk: 
+mydata%>% filter((expt=="1A"|expt=="1B")&hop=="NH")   ## ORs and ANDs (6rows)
+mydata%>% filter(expt=="1A"||Hop_type=="CENT")        ## OROR         (all 177 rows)
+mydata%>% filter((expt=="1A"|expt=="1B")&hop!="NH")   ## ORs and NOT  (30 rows)
+mydata%>% filter(hop=="NH" & expt=="1A")              ## AND      (3 rows)
+mydata%>% filter(BINhop==1 & expt=="1A")              ## AND       (15 rows)
+mydata%>% filter(Hop_type=="CASC" | Hop_type=="AMAR") ## OR        (12 rows)
+mydata%>% filter(is.na(special_group))                ## IS NA     (93 rows) 
+mydata%>% filter(!is.na(special_group))               ## is NOT NA (84 rows) 
+mydata%>% filter(xor(hop=="DH",Hop_type=="CENT"))     ## XOR       (117 rows)
+mydata%>% filter(volume_mL>=280)                      ## greaterthanorequalto (24 rows)
+mydata%>% filter(ADF<=77)                             ## lessthanorequalto (12 rows)
+
+## construct truth tables :
+x <- c(NA, FALSE, TRUE)
+names(x) <- as.character(x)
+outer(x, x, "&") ## AND table
+outer(x, x, "|") ## OR  table
+```
+
+
+```{r}
+## combined group/filter 
+mydata %>% group_by(expt) %>% filter(ABV == max(ABV)) %>% select(expt,Hop_type,ABV,ABV_increase)
+```
+
+
+```{r}
+## combined group/filter/select
+mydata %>% group_by(expt) %>% 
+  filter(., grepl('nh', Hop_type,ignore.case = TRUE)) %>% 
+  filter(testtime==min(testtime)|testtime==max(testtime)) %>%   ungroup %>%
+  select(Hop_type,contains("time")) 
+```
+Compare results above with/without the 
+
+%>% ungroup
+
+portion.  
+
+
+```{r}
+## combined group/mutate/filter/select
+mydata %>% group_by(expt) %>% 
+  filter(hop=="DH") %>% 
+  mutate(newvariable = difftime(dryhop_date,brew_date)) %>% 
+  filter(ABV==max(ABV)) %>% 
+  ungroup %>%
+  select(expt,newvariable,Hop_type,contains("date"))
+```
+
+
+```{r}
+## filter and arrange by date
+mydata %>% 
+  filter(Test_Date > "2017-07-01" & Test_Date <"2017-08-01") %>%
+  arrange(testtime)%>%
+  select(contains("date"))
+
+## all samples tested between 11 and 12 am or after 4pm
+## lubridate package is the way to go for hour and minute functions!
+mydata %>% 
+  filter(hour(testtime)>=16 | hour(testtime)==11) %>% 
+  arrange(Test.time) %>%
+select(contains("date"))
+```
+
+
+
+```{r}
+## pulling out components of datetimes
+#  NOTE:  most likely the lubridate package has more efficient way to accomplish whatever you're trying to do with dates!
+mydata %>% 
+  mutate(H = format(testtime, "%H")) %>%   ## hours (1-24)
+  mutate(M = format(testtime, "%M")) %>%   ## minutes (1-24)
+  mutate(d = format(testtime, "%d")) %>%   ## day of month
+  mutate(A = format(testtime, "%A")) %>%   ## day of week (unabbreviated)
+  mutate(a = format(testtime, "%a")) %>%   ## day of week
+  mutate(m = format(testtime, "%m")) %>%   ## month in numeric format (1-12)
+  mutate(b = format(testtime, "%b")) %>%   ## abbreviated month
+  mutate(B = format(testtime, "%B")) %>%   ## month
+  mutate(y = format(testtime, "%y")) %>%   ## 2-digit year (YY)
+  mutate(Y = format(testtime, "%Y")) %>%   ## 4-digit year (YYYY)
+   select(testtime,H,M,d,A,a,m,b,B,y,Y)
+  
+#earliest sample any each day of week
+mydata %>% 
+  mutate(dayofweek = format(testtime, "%A")) %>% 
+  group_by(dayofweek) %>% 
+  filter(Test.time==min(Test.time)) %>%
+  ungroup %>% 
+  select(testtime,contains("day"),sample_id)
+```
+
+
+```{r}
+## dryhop timing (max contact by expt)
+## combined group/filter/mutate/filter/select/arrange
+mydata %>% group_by(expt) %>% 
+  filter(hop=="DH") %>% 
+  mutate(
+    newvariable1 = difftime(Test_Date,dryhop_date),             ## create new variables
+    newvariable2 = difftime(dryhop_date,brew_date)
+         ) %>%
+  filter(newvariable1==max(newvariable1)) %>%                        ## filter on new variables
+  ungroup%>%
+  select(expt,contains("day"),contains("newvar")) %>%
+    unique %>%
+  arrange(desc(newvariable1))   
+
+## hop dosage ( pounds per barrel)
+## combined group/filter/mutate/summarise_at
+mydata %>% group_by(expt) %>% 
+  filter(hop=="DH") %>% 
+  mutate(newvariable1 = difftime(Test_Date,dryhop_date),
+         newvariable2 = difftime(dryhop_date,brew_date),
+         newvariable3 = mg_hops/volume_mL,
+         pounds_bbl = (mg_hops/volume_mL)*117/454) %>%
+  summarise_at(vars(pounds_bbl), 
+               funs(mean_pounds_bbl=mean(., na.rm = TRUE), 
+                    sd(., na.rm = TRUE), 
+                    n()
+                    ))
+```
+
+
+## mean ABW for unhopped* samples in each experiment
+```{r}
+#   *all samples had kettle hops.  "unhopped" here means "not dry-hopped".
+### BONUS data philosophy deep dive: "unhopped samples in each experiment" is straightforward concept for all by expt2 (time studies).  Here we choose to define "each experiment" such that each combination of timepoint&shakerouse in expt2 is regarded as a separate experiment.  To implement this we must first create a new variable (we will call it "EXPTnew") to reflect this definition.  
+mydata$EXPTnew<-mydata$special_group                     # start with "special_group" column
+mydata$EXPTnew<- gsub("_CENT16|_NH","", mydata$EXPTnew)  # strip away strings with gsub
+# replaceNAs in newEXPT with values in expt
+mydata$EXPTnew[is.na(mydata$EXPTnew)] <- as.character(mydata$expt[is.na(mydata$EXPTnew)])  # merge
+# and finally compute mean by groups
+meanABW.REF_NH<- mydata %>% 
+  group_by(EXPTnew) %>%
+  filter(hop=="NH") %>%
+  summarise(ABW.REF_NH=mean(ABW))
+meanABW.REF_NH
+```
+
+
+## compute mean increase in ABW relative to unhopped group in each experiment
+```{r}
+## using objects created above...
+## first join our data with mean ABV for unhopped samples in given experiment (meanABW.REF_NH; calculated above)
+FPHcalc<- left_join(mydata, meanABW.REF_NH, by="EXPTnew")
+
+## now create variable called ABW_increase 
+FPHcalc$ABW_increase <- FPHcalc$ABW - FPHcalc$ABW.REF_NH
+
+## and now we can create the ABW_increase variable and then summarize ABW_increase by EXPTnew   ##  note that BOTH are variables we created!
+FPHcalc %>% group_by(EXPTnew) %>% 
+  filter(hop=="DH") %>% 
+  mutate(g_100mL = (mg_hops/volume_mL)/10) %>%
+  summarise_at(vars(ABW_increase), 
+               funs(mean_ABW_increase=mean(., na.rm = TRUE), 
+                    sd(., na.rm = TRUE), 
+                    n()
+                    ))
+```
+
+
+
+
+
+## Compare the amount of ethanol produced with the amount of hops added
+
+```{r}
+#  just copy/paste from above then add a few more variables:
+FPHcalc_allvarieties <- FPHcalc %>% group_by(EXPTnew) %>% 
+  filter(hop=="DH") %>% 
+  mutate(timeofaddition = as.numeric(difftime(dryhop_date,brew_date)),
+         daysonhops = as.numeric(difftime(Test_Date,dryhop_date)),
+         ABW_increase = ABW - ABW.REF_NH,
+         hops_g_100mL = (mg_hops/volume_mL)/10,
+         FPH = ABW_increase/hops_g_100mL
+         ) %>%
+  summarise_at(vars(ABW_increase, hops_g_100mL, FPH, daysonhops, timeofaddition, temp.C), 
+               funs(mean(., na.rm = TRUE)))
+FPHcalc_allvarieties
+```
+
+
+## separate out the above by Hop_type
+```{r}
+
+#  just copy/paste from above then add to group_by statment:
+FPHcalc_byvariety <- FPHcalc %>% group_by(EXPTnew, Hop_type, temperature=as.factor(temp.C)) %>% 
+  filter(hop=="DH") %>% 
+  mutate(timeofaddition = as.numeric(difftime(dryhop_date,brew_date)),
+         daysonhops = as.numeric(difftime(Test_Date,dryhop_date)),
+         ABW_increase = ABW - ABW.REF_NH,
+         hops_g_100mL = (mg_hops/volume_mL)/10,
+         FPH = ABW_increase/hops_g_100mL
+         ) %>%
+  summarise_at(vars(ABW_increase, hops_g_100mL, FPH, daysonhops, timeofaddition, temp.C), 
+               funs(mean(., na.rm = TRUE),sd(., na.rm = TRUE)))
+FPHcalc_byvariety
+
+```
+
+
+
+
+Now expand the hop-related variables (harvest year, oxidation, form)
+
+```{r}
+## join our calculated values with original data
+df <- left_join(FPHcalc_byvariety,mydata, by="Hop_type")                 ## join by Hop_type
+unique_rows <- !duplicated(df[c("Hop_type","EXPTnew.x","temperature")])  ## identify unique combinations
+df <- df[unique_rows,]                                                   ## subset unique combinations
+##select, rearrange, sort columns
+dput(names(df))  # for copy/paste into select statement here:
+df <- df %>% select("EXPTnew.x", "Hop_type","variety", "harvestYear", "form", "OX", 
+"ABW_increase_mean", "hops_g_100mL_mean", "FPH_mean", "daysonhops_mean", "timeofaddition_mean", "temp.C_mean", 
+"ABW_increase_sd", "hops_g_100mL_sd", "FPH_sd", "daysonhops_sd", "timeofaddition_sd", "temp.C_sd") %>%
+  arrange(desc(FPH_mean)) %>% ungroup
+FPH_dataset<-df
+write.csv(FPH_dataset, "FPH_dataset.csv")
+FPH_dataset
+```
+
+# Pop Quiz 
+
+*1. Find the sample IDs for experiments that use simcoe hops
+
+*2. Calculate the mean Ea by Hop_type
+
+*3. Find the mean ABV for unhopped samples in experiments 1A and 1B
+
+*4. Calculate the mean ABV for unhopped samples in each experiment
+**BONUS:  calculate difference between each individual ABV and the mean ABV for unhopped samples from same expt
+
+*5. compute hop dosage in #/bbl
+** BONUS: normalize any observed dryhop-induced ABV increase to 1#/bbl by correcting for actual dosage
+
+*6. Find sample ID and all dates associated with brew_date in August
+
+*7. Determine the Pearson correlation coefficient for ABV~Ea
+
+
+
+##your answers
+```{r}
+.rs.restartR()    # restart R
+#install.packages("dplyr")
+library(dplyr)
+library(readxl)
+rm(list = ls())   # clear workspace
+
+## Data Import from-the-top
+
+
+
+## 1. sample IDs for experiments that use simcoe hops:
+answer1 <- mydata %>%
+  
+  
+  
+
+## 2. mean Ea by Hop_type:
+answer2 <- 
+
+## 3. mean ABV for unhopped samples in experiments 1A and 1B:
+answer3 <- 
+
+## 4. mean ABV for unhopped samples in each experiment:
+answer4 <- 
+## BONUS:  join each individual ABV measurement with mean ABV for unhopped samples in given experiment
+## BONUS2: calculate difference between each individual ABV and the mean ABV for unhopped samples from same expt
+
+## 5. compute hop dosage in #/bbl
+answer5<-
+## 5BONUS: normalize any observed dryhop-induced ABV increase to 1#/bbl by correcting for actual dosage
+
+# 6. sample ID and all dates associated with brew_date in August
+answer6<-
+  
+# 7. Pearson correlation coefficient for ABV~Ea
+answer7<-
+  
+## Double-bonus: produce any measurement of Enzyme Activity from these data
+
+
+```
+
+
+(some other answers)
+```{r}
+
+## Data Import from-the-top
+rm(list = ls())   # clear workspace
+import3<- read_excel("excel workbook.xlsx", sheet = 1, col_names = TRUE, na = c("","NA"))
+mydata<-import3
+import1 <-read.csv("ujbc_a_1469081_sm5496.txt")
+names(mydata) <- names(import1) 
+mydata$testtime<- as.POSIXct(mydata$Test_Date)+60*60*24*mydata$Test.time
+
+
+## 1. sample IDs for experiments that use simcoe hops:
+answer1<- mydata %>% filter(Hop_type=="SIM") %>% select(sample_id,Hop_type)
+
+## 2. mean Ea by Hop_type:
+answer2<- mydata %>% group_by(Hop_type) %>% summarise(mean=mean(Ea))
+
+## 3. mean ABV for unhopped samples in experiments 1A and 1B:
+answer3<- mydata %>% 
+  filter((expt=="1A"|expt=="1B")&hop=="NH") %>%
+  summarise(mean=mean(ABV))
+
+
+## 4. mean ABV for unhopped samples in each experiment:
+answer4<- mydata %>% 
+  group_by(expt) %>%
+  filter(hop=="NH") %>%
+  summarise(ABV.REF_NH=mean(ABV))
+## BONUS:  join each individual ABV measurement with mean ABV for unhopped samples in given experiment
+answer4BONUS1<- left_join(mydata, answer4, by="expt")
+
+## BONUS2: calculate difference between each individual ABV and the mean ABV for unhopped samples from same expt
+answer4BONUS2<- answer4BONUS1 %>%
+  mutate(ABV_increase2=ABV-ABV.REF_NH)
+
+
+## 5. compute hop dosage in #/bbl
+# convert mg/mL to #/bbl
+# 1 mg/ml * (1g / 1000mg) * (1# / 454g) * (1000mL / 1L) * (117L / 1bbl)
+conversionfactor<-(1000*117) / (1000*454)
+answer5<- answer4BONUS2%>% mutate(actualdosage=conversionfactor*mg_hops/volume_mL)
+
+## 5BONUS: normalize any observed dryhop-induced ABV increase to 1#/bbl by correcting for actual dosage
+answer5BONUS<- answer5%>% mutate(tabberers=ABV_increase2/actualdosage) %>%
+  filter(hop=="DH") %>%
+  select(contains("hop"),volume_mL, contains("ABV"),actualdosage, tabberers)
+
+
+
+## 6. sample ID and all dates associated with brew_date in August
+answer6<- mydata %>% 
+  mutate(month = format(brew_date, "%m")) %>%
+  filter(month=="08")%>% 
+  select(sample_id,contains("date"))
+
+
+## 7. Pearson correlation coefficient for ABV~Ea
+cor.test(mydata$ABV,mydata$Ea)
+
+
+
+## Double-bonus: produce any measurement of Enzyme Activity from these data
+# [S] = Er = substrate concentration
+# v = rate of reaction = [change in concentration] / [change in time]
+
+# Lineweaver-Burk double reciprocal plot 
+# rearrange the Michaelis-Menten equation as:
+#  1 / v = 1 / Vmax + Km / Vmax x 1 / [S]
+# plot 1/v against 1/[S] give a straight line:
+# y intercept = 1 / Vmax
+# gradient = Km / Vmax
+# x intercept = -1/ Km
+
+# to compute v = deltaC/deltatime [change in concentration] / [change in time]
+# need to compute Er difference between sample in question and NH control
+# identical to computing ABV.REF_NH above:
+tempobject<- mydata %>% 
+  group_by(expt) %>%
+  filter(hop=="NH") %>%
+  summarise(Er.REF_NH=mean(Er))
+doublebonus<- left_join(mydata, tempobject, by="expt")
+doublebonus <-doublebonus %>%
+  filter(hop=="DH") %>%
+  mutate(deltaC=Er.REF_NH-Er,deltatime=difftime(Test_Date,dryhop_date)) %>%
+  mutate(vReciprocal=deltatime/deltaC,
+         SReciprocal=1/Er) %>%
+  filter(vReciprocal>0& vReciprocal<50)
+x<- doublebonus$SReciprocal
+y<- doublebonus$vReciprocal
+plot(x,y, xlab="1/[S]", ylab="1/v")
+fit <- lm(y~x)
+Yintercept<- coef(fit)[1]
+slope<- coef(fit)[2]
+Vmax<-1/Yintercept
+Km<- slope*Vmax
+```
+
+
+# Recap
+
+Use your own data and modify the code snippets above to practice data import, data types, data manipulation, and some basic summaries and plots.
+
+
+
+# IMPUTE impute is keyword for sampling from mean/sd data
+
+
+## similar base R functions for reference
+```{r}
+
+## get means of numeric columns (NAs for other columns)
+sapply(mydata,mean)         ## sapply  ~"summary apply"
+```
+
+
+```{r}
+
+##mean ABV by hop type
+tapply(mydata$ABV, mydata$Hop_type, mean)   ## tapply (single factor)
+
+## tapply (~pivot table)
+## multifactor tapply (-> short&wide; list items add columns)
+tapply_pivot<-as.data.frame(with(mydata, tapply(ABV, 
+                        list(Hop_type, expt), mean))) ## 
+
+##table mean ABV increase by hop type
+tapply(mydata$ABV-mydata$REF_NH,mydata$Hop_type, mean)
+
+## boxplots in base R
+boxplot(mydata$ABV)                                  ## Specify single vector, or
+boxplot(ABV~Hop_type,data=mydata)                        ## Specify numeric~factor combination, or
+boxplot(ABV~Hop_type*expt, data=mydata)               ## Specify numeric~factor*factor combination
+boxplot(ABV~Hop_type*expt, data=mydata, las=2)        ## labels parallel (=0) or perpendicular(=2) to axis
+
+##plot mean ABV increase by hop type (note calculated factor)
+plot(mydata$Hop_type,mydata$ABV-mydata$REF_NH, las=2)  ## labels parallel (=0) or perpendicular(=2) to axis
+
+## plot ABV by days on hops (note time-based calculation)
+plot(as.numeric(mydata$Test_Date-mydata$dryhop_date),mydata$ABV)
+######################   FAIL (date formatting)  #########################
+# "�-� not meaningful for factorsno non-missing arguments to min; returning Infno non-missing arguments to max; returning -InfError in plot.window(...) : need finite 'xlim' values""
+
+
+## plot ABV by days on hops using difftime
+plot(difftime(mydata$Test_Date,mydata$dryhop_date, units = "days"),mydata$ABV)
+######################   FAIL (date formatting)  #########################
+# "Error in as.POSIXlt.character(as.character(x), ...) : character string is not in a standard unambiguous format"
+
+##correlate ABV increase with dryhopping ##
+cor(mydata$BINhop,mydata$ABV-mydata$REF_NH)  ## return R value; default = Pearson
+
+# Pearson's product-moment correlation
+cor.test(mydata$BINhop, mydata$ABV-mydata$REF_NH) ## default = Pearson; if the p is low...
+
+# Kendall's rank correlation tau
+cor.test(mydata$BINhop, mydata$ABV-mydata$REF_NH, method="kendall")  ## Kendall rank correlation
+
+# Spearman's rank correlation rho
+cor.test(mydata$BINhop, mydata$ABV-mydata$REF_NH, method="spearman")  ## Spearman rank correlation
+```
+
+
