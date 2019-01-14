@@ -1,10 +1,26 @@
 ---
-title: "Modeling The Freshening Power of the Hop Part 2: Linear Modeling"
+title: "Modeling The Freshening Power of the Hop Part 1: Tidy and Transform"
 output: html_notebook
 ---
 
-
 # outline
+
+
+#Wickham:  four activities of analysis:
+*tidy
+*transform
+*visualize
+*model
+
+
+# dplyr: filter, select, mutate, summarise, arrange (and group_by)
+## five verbs of dplyr (Wickham)
+* filter:  keep rows matching criteria
+* select:  pick columns by name
+* arrange: reorder rows (aka sort)
+* mutate:  add new variables 
+* summarise: reduce variables to values
+* group_by: (the 6th verb?)
 
 
 #Intro
@@ -17,39 +33,68 @@ Downloaded 12/31/18 from https://ndownloader.figshare.com/files/11921120 via htt
 if you care about what this means in a brewing context, first read the manuscript (link above).  This is simply an attempt to develop a metric such that "hop freshening power" can be incorporated into models of the warm-dryhopping process.  
 
 
+# Goals
+* express the ABW increase associated with dryhopping in terms of amount of hops added
 
 
-##Wickham's four activities:
-*tidy
-*transform
-*visualize
-*model
-
-
-##modeling
-
-quote from Minitab:
-"Multiple regression can be a beguiling, temptation-filled analysis. It’s so easy to add more variables as you think of them, or just because the data are handy. Some of the predictors will be significant. Perhaps there is a relationship, or is it just by chance? You can add higher-order polynomials to bend and twist that fitted line as you like, but are you fitting real patterns or just connecting the dots? All the while, the R-squared (R2) value increases, teasing you, and egging you on to add more variables!"
-http://blog.minitab.com/blog/adventures-in-statistics-2/multiple-regession-analysis-use-adjusted-r-squared-and-predicted-r-squared-to-include-the-correct-number-of-variables
-
-
-see Christoph Scherber "Mixed Effects Models with R" discuss how blocks in Oats dataset (in nlme package) invoke 'random effects'.  This seems analogous to (triplicate) 250mL samples collected from 800bbl fermenter.
-
+# Restart R and Load packages
+keep it simple for this one, just dplyr. 
 ```{r}
-#install.packages("nlme")
-library(nlme)
+.rs.restartR()  # restart R  
+
+#data wrangling
+#install.packages("dplyr")  # dplyr "data plyer"  
 library(dplyr)
-library(flextable) #  
+
+#formating tables
+#library(xtable)
+library(flextable)  # to make more compact tables
 #library(magrittr)
+
+
+
+#text processing
+#library(stringi)
+#library(tidytext)
+#library(yarrr)
+
+#graphics
+#library(ggplot2)
+#library(ggvis)
+
+#others
+#library(qcc)
+#library(lubridate) # lubridate for dates/times in general
+#library(chron)      #  chron for converting fractional days to AM/PM/24HR/etc time formats
+
+
 ```
 
 
-## FPHcalc in a single chunk
+
+## csv import
 ```{r}
+
 rm(list = ls()) # clear workspace
+## 1 read.csv
 mydata <-read.csv("ujbc_a_1469081_sm5496.txt",stringsAsFactors = FALSE)  ## SPECIFY filename
 
+## 2 inspect imported data
+```
+
+
+
+#To do
+*convert dates from 'character' to 'POSIX' date format
+*calculate mean ABW increase relative to control (NH) for each experimental group.
+**close inspection of the data shows that the beer in expt2 was not entirely end-fermented when dry-hopped.  This is evidenced by the fact that the control (NH) samples in those experiments increased by an average of ~0.15% ABV over the 42-day time-course of those experiments.  To account for this we will need to  create factor that allows us to group_by these discrete experimental groups (including separate groups for each 'expt2' time-point) so we can compute the mean baseline (NH) for each group.  
+## reword the above!
+
+
+
+
 ## create new variables (*.POSIXct, timeofaddition, daysonhops, hops_g_100mL, pounds_bbl, variety, harvestyear,ox)
+```{r}
 ### note: this is a base R data wrangling exercise! in general it's best to use lubridate package for date/timestamps! 
 
 ## can do one at a time (here we're creating new columns in POSIXct format, based on the particular date format used in the source data (ujbc_a_1469081_sm5496.txt; see ?as.POSIXct):
@@ -114,7 +159,11 @@ mydata<- mydata %>% mutate(EXPTnew=paste0("group",expt, substr(special_group, 1,
 # clean it up by removing "NA" and any spaces due to canarycode bug
 mydata$EXPTnew <- gsub(" ","", mydata$EXPTnew)  ## remove any spaces
 mydata$EXPTnew <- gsub("NA","", mydata$EXPTnew) ## remove "NA"
+```
 
+
+Now we've created all variables we need to do our calculations.  First some cleanup:
+```{r}
 ## rearrange columns (experimental factors on the left, then measurements, followed by calculations and finally all the date columns on the right):
 mydata <- mydata %>% 
   select(sample_id,EXPTnew, hop, BINhop, variety, OX, harvestYear, form_of_hops, daysonhops, timeofaddition, temperature_during_dryhop, temp.C, hops_g_100mL, pounds_bbl,
@@ -123,6 +172,11 @@ mydata <- mydata %>%
          brew_date.POSIXct, sample_collection_date.POSIXct, dryhop_date.POSIXct, Test_Date.POSIXct)
 ## remove ".POSIXct" suffix.  Leaving it as-is will only add to confusion if/when these data are saved and re-imported (and become 'character' format!)
 colnames(mydata) = gsub(".POSIXct", "", colnames(mydata))
+```
+
+
+
+```{r}
 
 #compute baseline ABW for each EXPTnew group
 meanABW.REF_NH<- mydata %>% 
@@ -130,8 +184,11 @@ meanABW.REF_NH<- mydata %>%
   filter(hop=="NH") %>%
   summarise(ABW.REF_NH=mean(ABW))
 meanABW.REF_NH
+```
+
 
 ## compute mean increase in ABW relative to meanABW.REF_NH (unhopped samples in same EXPTnew group), and normalize this relative to the exact amount of hops added
+```{r}
 ## using objects created above...
 ## first join our data with mean ABV for unhopped samples in given experiment (meanABW.REF_NH; calculated above)
 FPHcalc<- left_join(mydata, meanABW.REF_NH, by="EXPTnew")
@@ -142,60 +199,53 @@ FPHcalc$ABW_increase <- FPHcalc$ABW - FPHcalc$ABW.REF_NH
 ## and define "FPH" as the amount of ethanol produced per % dry-hops added (in g/100mL):
 FPHcalc$FPH = FPHcalc$ABW_increase/FPHcalc$hops_g_100mL
 FPHcalc <- FPHcalc %>% filter(hop=="DH")
+
+
+#timezerorows
+## since we know for certain that at time zero, the true dry-hop induced ethanol increase is zero.  Some time-zero rows we make "by hand" will reflect this reality much better than using real data that in this case.  (our real data at time zero is mostly instrument noise).
+## we'll make three identical rows per
+
+
+unique_rows <- !duplicated(FPHcalc[c("variety","OX","harvestYear", "form_of_hops", "temperature_during_dryhop")])  ## identify unique combinations
+df <- FPHcalc[unique_rows,]     ## subset unique combinations
+df$daysonhops<- 0
+df$timeofaddition<- 0
+df$ABV<- 0
+df$ABW<- 0
+df$OE<- 0
+df$Er<- 0
+df$Ea<- 0
+df$SG<- 0
+df$RDF<- 0
+df$ADF<- 0
+df$dhop_day<- 0
+df$contact_days<- 0
+df$ABV_increase<- 0
+df$ABW.REF_NH<- 0
+df$ABW_increase<- 0
+df$FPH<- 0
+timezerorows<-rbind(df,df)    ### duplicates
+timezerorows<-rbind(timezerorows,df)  ### triplicates
+#FPHcalc<-rbind(FPHcalc,timezerorows)  ### triplicates
+
+
+## and save the transformed data to csv:
+write.csv(FPHcalc,"FPHcalc.csv", row.names = FALSE)
+
+##vanity table
+tempster<- FPHcalc %>% group_by(variety,form_of_hops,daysonhops,harvestYear,OX, temperature_during_dryhop) %>%
+  summarise_at(vars(hops_g_100mL,pounds_bbl, ABW_increase,FPH),funs(mean)) %>%
+  arrange(desc(FPH)) 
+tempster$OX<- as.character(tempster$OX)
+tempster$daysonhops<- as.integer(tempster$daysonhops)
+tempster$harvestYear<- as.integer(tempster$harvestYear)
+tempster$ABW_increase<- substr(as.character(tempster$ABW_increase,2), 1,4)
+tempster$hops_g_100mL<- substr(as.character(tempster$hops_g_100mL,2), 1,4)
+tempster$pounds_bbl<- substr(as.character(tempster$pounds_bbl,2), 1,4)
+tempster$FPH<- substr(as.character(tempster$FPH,2), 1,4)
+tempster <- as.data.frame(tempster) 
+tempster %>%  regulartable() %>% autofit()
 ```
-
-
-start with linear model using all data,  using daysonhops and form_of_hops as the only two factors in our model:
-```{r}
-mydata<- FPHcalc
-
-model_fixedeffects<- lm(FPH~daysonhops*form_of_hops,data=mydata)
-model_fixedeffects
-```
-Above:  estimated coefficients for the model (equation):
-FPH = 0.31807+ 0.0417(daysonhops)+0.84862(form_of_hopsground)+0.21417(form_of_hopspellet) 
-
-The base case is where form_of_hops is "cone" (the first on an alphabetic list of the levels of as.factor(form_of_hops)) and days on hops = 1 (the lowest number in the dataset)
-
-
-# why are interactions NA?
-(if we add 'dummy rows' with zeroes for FPH, time on hops, etc we get interactions...)
-
-
-
-```{r}
-summary(model_fixedeffects)
-```
-
-#How to read model summary
-The adjusted R-squared is R-squared adjusted for the number of predictors. As you add more predictors (input variables), the adjusted R-squared increases only if the new input variable improves the model more than would be expected by chance.
-
-The predicted R-squared indicates how well a regression model predicts responses for new observations.   
-
-
-
-compare coef of the random vs. fixed effects models:
-each interaction has it's own intercept
-```{r}
-coef1<-as.data.frame(coef(model_fixedeffects))
-#coef2<-as.data.frame(coef(model_randomeffects))
-```
-
-
-
-
-
-
-# residual plots
-
-
-
-
-
-
-
-
-
-
-
+We now have a single variable (FPH) that accounts for both the amount of hops added and the amount of ethanol produced.  We will use this variable to create models that [attempt to] relate variables such as hop variety, form of hops, time on hops, age and storage conditions of hops, and temperature during dryhopping, to the amount of ethanol produced due to dry-hopping.
+# tranform complete.  We will use this output as basis for modeling work.
 
