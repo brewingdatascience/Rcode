@@ -51,8 +51,6 @@ library(dplyr)
 library(flextable)  # to make more compact tables
 #library(magrittr)
 
-
-
 #text processing
 #library(stringi)
 #library(tidytext)
@@ -61,6 +59,9 @@ library(flextable)  # to make more compact tables
 #graphics
 #library(ggplot2)
 #library(ggvis)
+
+#modeling
+#library(nlme)
 
 #others
 #library(qcc)
@@ -122,6 +123,7 @@ mydata<- mydata %>%
          )
 
 mydata$OX<-grepl("OX", mydata$Hop_type)           ##  create logical "OX" column
+mydata$rouse<-grepl("rouse", mydata$special_group)##  create logical "rouse" column
 mydata$Grind<-grepl("Grind", mydata$Hop_type)     ##  create logical column
 mydata$Cone<-grepl("Cone", mydata$Hop_type)       ##  create logical column
 mydata$harvest2014<-grepl("14", mydata$Hop_type)  ##  create logical column
@@ -162,11 +164,11 @@ mydata$EXPTnew <- gsub("NA","", mydata$EXPTnew) ## remove "NA"
 ```
 
 
-Now we've created all variables we need to do our calculations.  First some cleanup:
+Now we've created several new variables including everything we need to calculate ABW increase due to dry-hopping.  First some cleanup:
 ```{r}
 ## rearrange columns (experimental factors on the left, then measurements, followed by calculations and finally all the date columns on the right):
 mydata <- mydata %>% 
-  select(sample_id,EXPTnew, hop, BINhop, variety, OX, harvestYear, form_of_hops, daysonhops, timeofaddition, temperature_during_dryhop, temp.C, hops_g_100mL, pounds_bbl,
+  select(sample_id,EXPTnew, hop, BINhop, variety, OX, rouse, harvestYear, form_of_hops, daysonhops, timeofaddition, temperature_during_dryhop, temp.C, hops_g_100mL, pounds_bbl,
          ABV, ABW, OE, Er, Ea, SG, RDF, ADF, Calories, 
          dhop_day, contact_days, REF_NH, ABV_increase, 
          brew_date.POSIXct, sample_collection_date.POSIXct, dryhop_date.POSIXct, Test_Date.POSIXct)
@@ -187,7 +189,8 @@ meanABW.REF_NH
 ```
 
 
-## compute mean increase in ABW relative to meanABW.REF_NH (unhopped samples in same EXPTnew group), and normalize this relative to the exact amount of hops added
+## compute FPH
+compute mean increase in ABW relative to meanABW.REF_NH (unhopped samples in same EXPTnew group), and normalize this relative to the exact amount of hops added.  Also calculate CO2 production using Balling formula and similarly normalize calculated CO2 relative to the exact amount of hops added.
 ```{r}
 ## using objects created above...
 ## first join our data with mean ABV for unhopped samples in given experiment (meanABW.REF_NH; calculated above)
@@ -196,55 +199,38 @@ FPHcalc<- left_join(mydata, meanABW.REF_NH, by="EXPTnew")
 ## now calculate ABW_increase by subtracting each individual ABW measurement from meanABW.REF_NH:
 FPHcalc$ABW_increase <- FPHcalc$ABW - FPHcalc$ABW.REF_NH
 
-## and define "FPH" as the amount of ethanol produced per % dry-hops added (in g/100mL):
-FPHcalc$FPH = FPHcalc$ABW_increase/FPHcalc$hops_g_100mL
-FPHcalc <- FPHcalc %>% filter(hop=="DH")
+## the control samples have served their purpose, now remove them from dataset. These following calculations are only meaningful for dry-hopped samples.  
+FPHcalc<- FPHcalc %>% filter(hop=="DH")
 
+## compute corresponding CO2 production following Bamforth (describing Balling equation) "...more realistically, the ethanol yield is more like 0.46 g and carbon dioxide 0.44 g from 1 g sugar"  (p. 137 in Brewing Materials and Processes: A Practical Approach to Beer Excellence, Edited by Charles Bamforth Academic Press, 2016)
+FPHcalc$calcCO2_increase <- FPHcalc$ABW_increase*(0.44/0.46)
+##convert calcCO2_increase (in g/100mL) to calculated CO2 volumes added
+## g/L = 10* g/100mL
+## The conversion factor from volumes of CO2 to CO2 by weight (g/L) is 1.96. For example: 2.5 volumes x 1.96 = 4.9 g/l.
+FPHcalc$calcCO2vols_increase <- FPHcalc$calcCO2_increase*10/1.96
 
-#timezerorows
-## since we know for certain that at time zero, the true dry-hop induced ethanol increase is zero.  Some time-zero rows we make "by hand" will reflect this reality much better than using real data that in this case.  (our real data at time zero is mostly instrument noise).
-## we'll make three identical rows per
-
-
-unique_rows <- !duplicated(FPHcalc[c("variety","OX","harvestYear", "form_of_hops", "temperature_during_dryhop")])  ## identify unique combinations
-df <- FPHcalc[unique_rows,]     ## subset unique combinations
-df$daysonhops<- 0
-df$timeofaddition<- 0
-df$ABV<- 0
-df$ABW<- 0
-df$OE<- 0
-df$Er<- 0
-df$Ea<- 0
-df$SG<- 0
-df$RDF<- 0
-df$ADF<- 0
-df$dhop_day<- 0
-df$contact_days<- 0
-df$ABV_increase<- 0
-df$ABW.REF_NH<- 0
-df$ABW_increase<- 0
-df$FPH<- 0
-timezerorows<-rbind(df,df)    ### duplicates
-timezerorows<-rbind(timezerorows,df)  ### triplicates
-#FPHcalc<-rbind(FPHcalc,timezerorows)  ### triplicates
-
+## and define "FPH" as the amount produced per % dry-hops added (in g/100mL):
+FPHcalc$FPH_EtOH = FPHcalc$ABW_increase/FPHcalc$hops_g_100mL
+FPHcalc$FPH_CO2 = FPHcalc$calcCO2_increase/FPHcalc$hops_g_100mL
 
 ## and save the transformed data to csv:
 write.csv(FPHcalc,"FPHcalc.csv", row.names = FALSE)
 
 ##vanity table
-tempster<- FPHcalc %>% group_by(variety,form_of_hops,daysonhops,harvestYear,OX, temperature_during_dryhop) %>%
-  summarise_at(vars(hops_g_100mL,pounds_bbl, ABW_increase,FPH),funs(mean)) %>%
-  arrange(desc(FPH)) 
-tempster$OX<- as.character(tempster$OX)
-tempster$daysonhops<- as.integer(tempster$daysonhops)
-tempster$harvestYear<- as.integer(tempster$harvestYear)
-tempster$ABW_increase<- substr(as.character(tempster$ABW_increase,2), 1,4)
-tempster$hops_g_100mL<- substr(as.character(tempster$hops_g_100mL,2), 1,4)
-tempster$pounds_bbl<- substr(as.character(tempster$pounds_bbl,2), 1,4)
-tempster$FPH<- substr(as.character(tempster$FPH,2), 1,4)
-tempster <- as.data.frame(tempster) 
-tempster %>%  regulartable() %>% autofit()
+df<- FPHcalc %>% group_by(variety,form_of_hops,daysonhops,harvestYear,OX, temperature_during_dryhop) %>%
+  summarise_at(vars(hops_g_100mL,pounds_bbl, ABW_increase,FPH_EtOH, FPH_CO2, calcCO2vols_increase),funs(mean)) %>%
+  arrange(desc(FPH_EtOH)) 
+df$OX<- as.character(df$OX)
+df$daysonhops<- as.integer(df$daysonhops)
+df$harvestYear<- as.integer(df$harvestYear)
+df$ABW_increase<- substr(as.character(df$ABW_increase,2), 1,4)
+df$hops_g_100mL<- substr(as.character(df$hops_g_100mL,2), 1,4)
+df$pounds_bbl<- substr(as.character(df$pounds_bbl,2), 1,4)
+df$FPH_EtOH<- substr(as.character(df$FPH_EtOH,2), 1,4)
+df$FPH_CO2<- substr(as.character(df$FPH_CO2,2), 1,4)
+df$calcCO2vols_increase<- substr(as.character(df$calcCO2vols_increase,2), 1,4)
+df <- as.data.frame(df) 
+df %>%  regulartable() %>% autofit()
 ```
 We now have a single variable (FPH) that accounts for both the amount of hops added and the amount of ethanol produced.  We will use this variable to create models that [attempt to] relate variables such as hop variety, form of hops, time on hops, age and storage conditions of hops, and temperature during dryhopping, to the amount of ethanol produced due to dry-hopping.
 # tranform complete.  We will use this output as basis for modeling work.

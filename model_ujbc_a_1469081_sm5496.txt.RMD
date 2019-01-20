@@ -1,51 +1,176 @@
 ---
-title: "Modeling The Freshening Power of the Hop Part 2: Linear Modeling"
+title: "Modeling The Freshening Power of the Hop"
 output: html_notebook
 ---
+
+This is an R Markdown document.  Both the [R Markdown Reference Guide](https://www.rstudio.com/wp-content/uploads/2015/03/rmarkdown-reference.pdf "pdf document") and [R Markdown Cheat Sheet](https://github.com/rstudio/cheatsheets/raw/master/rmarkdown-2.0.pdf "pdf document") So far this [handy markdown cheatsheet from Adam Pritchard](https://github.com/adam-p/markdown-here/wiki/Markdown-Cheatsheet "Markdown-Cheatsheet") seems to apply.  This [resource from R Pruim on mathematical symbols](https://www.calvin.edu/~rpruim/courses/s341/S17/from-class/MathinRmd.html) was also very helpful in putting this document together.
+
+
+*Step1:  Open this .RMD file in R Studio and click the "Preview" button above.  A formatted version should pop up in a browser window.  IF not, troubleshoot that!*
 
 
 # outline
 
 
+
+
 #Intro
-This based on "ujbc_a_1469081_sm5496.txt" (supplementary data from Jacob A. Kirkendall, Carter A. Mitchell & Lucas R. Chadwick (2018): The Freshening Power of Centennial Hops, Journal of the American Society of Brewing Chemists DOI: 10.1080/03610470.2018.1469081  https://doi.org/10.1080/03610470.2018.1469081)
-Downloaded 12/31/18 from https://ndownloader.figshare.com/files/11921120 via https://www.tandfonline.com/doi/suppl/10.1080/03610470.2018.1469081?scroll=top
+This *preliminary* attempt to develop a metric for *Hop Freshening Power* and to model this aspect of the dry-hopping process is really just an excercise in modeling and markdown formatting using R Studio. If you care what this means in a beer and brewing context, bear in mind that the Shellhammer group at Oregon State University[1,](https://pubs.acs.org/doi/abs/10.1021/acs.jafc.8b03563 "Kirkpatrick 2018")[2,]()[3]() has done extensive work to characterize the molecular mechanisms at play. In contrast, the data used for this work are relatively 'simple' whole-system factors and endpoints:  a certain amount of hops are added to beers under various conditions, allowed to react for certain amounts of time, then the resulting beers were tested for alcohol content (using Anton Paar DMA4500 Beer Alcolyzer) to produce the data we are using in this exercise.  For more details on this dataset see the [manuscript](https://www.tandfonline.com/doi/full/10.1080/03610470.2018.1469081?scroll=top&needAccess=true "Kirkendall2018").  Undoubtedly, any 'complete' model of *Hop Freshening Power* will incorporate molecular information exemplified by the OSU researchers (e.g. production of glucose and maltose) and will certainly involve some yeast-related factors.
+
+* please send complaints and corrections to chadwickphd@gmail.com!
+* Data are from the file "ujbc_a_1469081_sm5496.txt" (supplementary data from Jacob A. Kirkendall, Carter A. Mitchell & Lucas R. Chadwick (2018): The Freshening Power of Centennial Hops, *Journal of the American Society of Brewing Chemists* Volume 76, Issue 3, Pages 178-184 (**2018**) DOI: 10.1080/03610470.2018.1469081* available from <https://www.tandfonline.com/doi/full/10.1080/03610470.2018.1469081?scroll=top&needAccess=true>
+
+> Note:  As of 1/19/19 haven't managed to import from tandfonline directly into R environment. Closest would involve clicking [this link](https://ndownloader.figshare.com/files/11921120) (in Windows) and setting download directly and R working directory to same location. That would just be silly, so this is based on a file downloaded 12/31/18 from  https://www.tandfonline.com/doi/suppl/10.1080/03610470.2018.1469081?scroll=top and placed in R working directory.
+
+In most cases the variables used below to model hop freshening power are *calculations* based on the original data. The process of creating new variables from existing variables is known as *data transformation*, one of Wickham's four iterations of data analysis.  The process of transforming the original data was detailed in a [preceeding Notebook](reference FPH tidy and trasform!!) and presented below as a single code chunk.
+
+* [Wickham's four pillars of data analysis:](https://r4ds.had.co.nz/ "Grolemund and Wickham's R for Data Science")
+    + tidy
+        - transform
+        - visualize
+        - model
+
+* [*"Data is not information. Information is not knowledge. And knowledge
+is certainly not wisdom."*](http://www.datagovernance.com/quotes/knowledge-quotes/ "Clifford Stoll")
+
+* [this is not a] stats class
+    + descriptive statistics
+    + inferential statistics
+    + (modeling)
 
 
+##R Markdown note1: Nested Lists and [the four-space rule](https://stackoverflow.com/questions/36866916/incremental-nested-lists-in-rmarkdown "StackOverflow")
+Open this file in R Studio and click the "preview" button above. A browswer window should pop open and display a formatted version of this document. Take a close look at the difference between the items below (in "raw unformatted markdown text") and how they appear in the browswer window.  Note there are exactly 4 spaces in front of the sub items and exactly 8 spaces in front of the sub-sub items:
 
-# intro text!
-if you care about what this means in a brewing context, first read the manuscript (link above).  This is simply an attempt to develop a metric such that "hop freshening power" can be incorporated into models of the warm-dryhopping process.  
+* unordered list
+    + sub-item 1 
+    + sub-item 2 
+        - sub-sub-item 1
 
+1. ordered list
+    1. ordered sub-items (4 spaces!)
+    512. numbers don't matter!
+        1. sub-sub item (8 spaces!)
+        888. ordered sub-list, numbers don't matter!
+42. numbers really don't matter!
+9.but periods and spaces are critical!
 
-
-
-##Wickham's four activities:
-*tidy
-*transform
-*visualize
-*model
-
-
-##modeling
-
-quote from Minitab:
-"Multiple regression can be a beguiling, temptation-filled analysis. It’s so easy to add more variables as you think of them, or just because the data are handy. Some of the predictors will be significant. Perhaps there is a relationship, or is it just by chance? You can add higher-order polynomials to bend and twist that fitted line as you like, but are you fitting real patterns or just connecting the dots? All the while, the R-squared (R2) value increases, teasing you, and egging you on to add more variables!"
-http://blog.minitab.com/blog/adventures-in-statistics-2/multiple-regession-analysis-use-adjusted-r-squared-and-predicted-r-squared-to-include-the-correct-number-of-variables
+From the link above:  "A list item may contain multiple paragraphs and other block-level content. However, subsequent paragraphs must be preceded by a blank line and indented four spaces or a tab. The list will look better if the first paragraph is aligned with the rest."
 
 
-see Christoph Scherber "Mixed Effects Models with R" discuss how blocks in Oats dataset (in nlme package) invoke 'random effects'.  This seems analogous to (triplicate) 250mL samples collected from 800bbl fermenter.
+##R Markdown note2:  setting display options for code and output
 
+* default is
+    + display code in final document (with results interspersed)
+    + display output BOTH in the final document and below the chunk in R studio:
 ```{r}
-#install.packages("nlme")
-library(nlme)
+mydata <-read.csv("ujbc_a_1469081_sm5496.txt",stringsAsFactors = FALSE)  ## SPECIFY filename
+## these are all BASE R FUNCTIONS (should all run even with no libraries loaded!)
+##mean ABV increase by hop type
+tapply(mydata$ABV-mydata$REF_NH,mydata$Hop_type, mean)
+## correlation coefficient between dryhopping and ABV increase
+cor(mydata$BINhop, mydata$ABV-mydata$REF_NH)   ## default = Pearson
+##correlate ABV increase with dryhopping using Kendall's rank correlation tau
+cor.test(mydata$BINhop, mydata$ABV-mydata$REF_NH, method="kendall")  ## default = Pearson
+boxplot(mydata$ABV)                       ## Plot single vector
+boxplot(ABV~Hop_type, data=mydata, las=2) ## las=2 specifies labels perpendicular to axis
+```
+> note:  in R Studio various "thumbnails" appear below the code chunk.  Each of these thumbnails corresponds to an output from the code chunk.  Click the thumbnail to display the output in R Studio.  By default, the last output called for in the code chunk will be displayed.
+
+* include=FALSE specifies that the chunk is evaluated, but output is NOT displayed in here in R Studio, or in the final document...
+```{r chunk_includeFALSE, include=FALSE}
+with(mydata, tapply(ABV,list(Hop_type, expt),mean)) 
+##mean ABV increase by hop type
+tapply(mydata$ABV-mydata$REF_NH,mydata$Hop_type, mean)
+## correlation coefficient between dryhopping and ABV increase
+cor(mydata$BINhop, mydata$ABV-mydata$REF_NH)   ## default = Pearson
+##correlate ABV increase with dryhopping using Kendall's rank correlation tau
+cor.test(mydata$BINhop, mydata$ABV-mydata$REF_NH, method="kendall")  ## default = Pearson
+boxplot(mydata$ABV)                       ## Plot single vector
+boxplot(ABV~Hop_type, data=mydata, las=2) ## las=2 specifies labels perpendicular to axis
+```
+
+* "results="hide" specifies that the "results" of this chunk will not be shown in the formatted document:
+```{r chunk_results_hide, results="hide"}
+with(mydata, tapply(ABV,list(Hop_type, expt),mean)) 
+##mean ABV increase by hop type
+tapply(mydata$ABV-mydata$REF_NH,mydata$Hop_type, mean)
+## correlation coefficient between dryhopping and ABV increase
+cor(mydata$BINhop, mydata$ABV-mydata$REF_NH)   ## default = Pearson
+##correlate ABV increase with dryhopping using Kendall's rank correlation tau
+cor.test(mydata$BINhop, mydata$ABV-mydata$REF_NH, method="kendall")  ## default = Pearson
+boxplot(mydata$ABV[mydata$hop=="DH"]) ## Plot dry-hopped only
+boxplot(mydata$ABV[mydata$hop=="NH"]) ## control samples only
+```
+> note:  It may be counterintuitive that boxplots (in results="hide" chunk above) are not considered "results"
+
+
+* "echo=FALSE" specifies that the code will not be shown in the final document (but results/output will be displayed).
+```{r chunk_echoFALSE, echo=FALSE}
+boxplot(ABV~special_group, data=mydata, las=2, cex.axis = 0.5) ## las=2 specifies labels perpendicular to axis
+```
+
+
+##R Markdown note3:  inline code
+A key motivation for using this is to enhance reproducibility of research: our results are accompanied by the data and calculations used to produce them.  Rather than typing "The estimated correlation between dryhopping and ABV increase was 0.72", 
+in R Markdown we can do this: The estimated correlation between dryhopping and ABV increase was `r cor(mydata$BINhop, mydata$ABV-mydata$REF_NH)`.
+
+> compare how the text above appears in R Studio vs. how it appears in the final document
+
+
+## un/load libraries
+```{r}
+# restarting R will "unload" all libraries except those required in base R
+.rs.restartR()  # restart R 
+```
+> note:  libraries are the equivalent of 'apps' in R.  The libraries you have loaded at any given time can impact the output of any given chunk of code. You can see what packages are loaded either by clicking "Gloabl Environment" dropdown in upper right in R Studio, or by using search().  As of R version 3.5.2, the packages loaded by default are:
+
+>> stats, graphics, grDevices, utils, datasets, methods, base 
+
+> In "normal R Studio" you can revert to default packages ("unload any loaded packages") by restarting R (click session--> restart R; or Ctrl+Shift+F10) or by using the command ".rs.restartR()" in a code chunk.  The "package loading behavior"" in R Notebooks is somehwat different... 
+
+>>ActionItem:  update the above with info about controlling package loading in R Notebooks!
+
+* Always be mindful of the packages you have loaded!
+* A fully reproducible analysis includes (usually at the end) output from sessionInfo() command!
+
+Now to load the libraries used for this analysis:
+```{r}
+#.rs.restartR()  # restart R 
+sessionInfo()
+
+#data wrangling
+#install.packages("dplyr")  # dplyr "data plyer"  
 library(dplyr)
-library(flextable) #  
-#library(magrittr)
+
+#formating tables
+#library(xtable)
+library(flextable)  # to make fancy tables
+library(magrittr)   # allows piping (%>%) directly into flextable  ??
+
+#text processing
+#library(stringi)
+#library(tidytext)
+#library(yarrr)
+
+#graphics
+#library(ggplot2)
+#library(ggvis)
+
+#modeling
+library(nlme)
+
+#others
+#library(qcc)
+#library(lubridate) # lubridate for dates/times in general
+#library(chron)     #  chron for converting fractional days to AM/PM/24HR/etc time formats
+library(officer)  ## manipulate/create MSword and MSpowerpoint files; used here in 'vanity table' to use Greek symbols in column header
+sessionInfo()
 ```
 
 
 ## FPHcalc in a single chunk
-```{r}
+```{r chunk_tidytransform, include=FALSE}
 rm(list = ls()) # clear workspace
 mydata <-read.csv("ujbc_a_1469081_sm5496.txt",stringsAsFactors = FALSE)  ## SPECIFY filename
 
@@ -77,6 +202,7 @@ mydata<- mydata %>%
          )
 
 mydata$OX<-grepl("OX", mydata$Hop_type)           ##  create logical "OX" column
+mydata$rouse<-grepl("rouse", mydata$special_group)##  create logical "rouse" column
 mydata$Grind<-grepl("Grind", mydata$Hop_type)     ##  create logical column
 mydata$Cone<-grepl("Cone", mydata$Hop_type)       ##  create logical column
 mydata$harvest2014<-grepl("14", mydata$Hop_type)  ##  create logical column
@@ -94,7 +220,7 @@ mydata$form_of_hops <- ifelse(
          ifelse(mydata$Hop_type=="NH", "NH", "pellet")))
 
 ## ifelse statement for temperature greater or less than 10 
-mydata$temperature_during_dryhop <- ifelse(
+mydata$DH_temp <- ifelse(
   mydata$temp.C<10, "cold",
   ifelse(mydata$temp.C>10, "warm", "something else"))
 
@@ -110,14 +236,14 @@ mydata$variety<- gsub("Cone","", mydata$variety)
 mydata$variety<- gsub(" ","", mydata$variety)
 
 ## create "EXPTnew" variable to account for beer not being end-fermented when time-series (expt 2A) commenced
-mydata<- mydata %>% mutate(EXPTnew=paste0("group",expt, substr(special_group, 1,2)))
+mydata<- mydata %>% mutate(EXPTnew=paste0("group",expt, substr(special_group, 1,2),as.character(rouse)))
 # clean it up by removing "NA" and any spaces due to canarycode bug
 mydata$EXPTnew <- gsub(" ","", mydata$EXPTnew)  ## remove any spaces
 mydata$EXPTnew <- gsub("NA","", mydata$EXPTnew) ## remove "NA"
 
 ## rearrange columns (experimental factors on the left, then measurements, followed by calculations and finally all the date columns on the right):
 mydata <- mydata %>% 
-  select(sample_id,EXPTnew, hop, BINhop, variety, OX, harvestYear, form_of_hops, daysonhops, timeofaddition, temperature_during_dryhop, temp.C, hops_g_100mL, pounds_bbl,
+  select(sample_id,EXPTnew, hop, BINhop, variety, OX, harvestYear, form_of_hops, rouse, daysonhops, timeofaddition, DH_temp, temp.C, hops_g_100mL, pounds_bbl,
          ABV, ABW, OE, Er, Ea, SG, RDF, ADF, Calories, 
          dhop_day, contact_days, REF_NH, ABV_increase, 
          brew_date.POSIXct, sample_collection_date.POSIXct, dryhop_date.POSIXct, Test_Date.POSIXct)
@@ -129,28 +255,222 @@ meanABW.REF_NH<- mydata %>%
   group_by(EXPTnew) %>%
   filter(hop=="NH") %>%
   summarise(ABW.REF_NH=mean(ABW))
-meanABW.REF_NH
 
 ## compute mean increase in ABW relative to meanABW.REF_NH (unhopped samples in same EXPTnew group), and normalize this relative to the exact amount of hops added
 ## using objects created above...
 ## first join our data with mean ABV for unhopped samples in given experiment (meanABW.REF_NH; calculated above)
+
 FPHcalc<- left_join(mydata, meanABW.REF_NH, by="EXPTnew")
 
 ## now calculate ABW_increase by subtracting each individual ABW measurement from meanABW.REF_NH:
 FPHcalc$ABW_increase <- FPHcalc$ABW - FPHcalc$ABW.REF_NH
 
-## and define "FPH" as the amount of ethanol produced per % dry-hops added (in g/100mL):
-FPHcalc$FPH = FPHcalc$ABW_increase/FPHcalc$hops_g_100mL
-FPHcalc <- FPHcalc %>% filter(hop=="DH")
+## the control samples have served their purpose, now remove them from dataset. The following calculations are only meaningful for dry-hopped samples.  
+FPHcalc<- FPHcalc %>% filter(hop=="DH")
+
+## compute corresponding CO2 production following Bamforth (describing Balling equation) "...more realistically, the ethanol yield is more like 0.46 g and carbon dioxide 0.44 g from 1 g sugar"  (p. 137 in Brewing Materials and Processes: A Practical Approach to Beer Excellence, Edited by Charles Bamforth Academic Press, 2016)
+FPHcalc$calcCO2_increase <- FPHcalc$ABW_increase*(0.44/0.46)
+##convert calcCO2_increase (in g/100mL) to calculated CO2 volumes added
+## g/L = 10* g/100mL
+## The conversion factor from volumes of CO2 to CO2 by weight (g/L) is 1.96. For example: 2.5 volumes x 1.96 = 4.9 g/l.
+FPHcalc$calcCO2vols_increase <- FPHcalc$calcCO2_increase*10/1.96
+
+## and define "FPH" as amount produced per % dry-hops added (in g/100mL):
+FPHcalc$FPH_EtOH = FPHcalc$ABW_increase/FPHcalc$hops_g_100mL
+FPHcalc$FPH_CO2 = FPHcalc$calcCO2_increase/FPHcalc$hops_g_100mL
+
+## and save the transformed data to csv:
+write.csv(FPHcalc,"FPHcalc.csv", row.names = FALSE)
 ```
 
 
-start with linear model using all data,  using daysonhops and form_of_hops as the only two factors in our model:
-```{r}
-mydata<- FPHcalc
+```{r vanitytable, echo=FALSE}
+##vanity table
 
-model_fixedeffects<- lm(FPH~daysonhops*form_of_hops,data=mydata)
-model_fixedeffects
+FPHcalc <- read.csv("FPHcalc.csv", stringsAsFactors = FALSE)
+
+df<- FPHcalc %>% group_by(variety,form_of_hops,harvestYear,OX,DH_temp,daysonhops,rouse) %>%
+  summarise_at(vars(hops_g_100mL,pounds_bbl, ABW_increase,FPH_EtOH, FPH_CO2, calcCO2vols_increase),funs(mean)) %>%
+  arrange(desc(FPH_EtOH)) 
+
+df$OX<- as.character(df$OX)
+df$daysonhops<- as.integer(df$daysonhops)
+df$harvestYear<- as.integer(df$harvestYear)
+df$ABW_increase<- substr(as.character(df$ABW_increase,2), 1,4)
+df$hops_g_100mL<- substr(as.character(df$hops_g_100mL,2), 1,4)
+df$pounds_bbl<- substr(as.character(df$pounds_bbl,2), 1,4)
+df$FPH_EtOH<- substr(as.character(df$FPH_EtOH,2), 1,4)
+df$FPH_CO2<- substr(as.character(df$FPH_CO2,2), 1,4)
+df$calcCO2vols_increase<- substr(as.character(df$calcCO2vols_increase,2), 1,4)
+df <- as.data.frame(df) 
+
+vanitytable <- flextable(df) %>% 
+font(fontname = "Arial", part = "all") %>% 
+flextable::display(col_key = "ABW_increase", part = "header",
+      pattern = "{{D}}{{A}}", 
+      formatters = list(D ~ as.character("D"),
+                        A ~ as.character("ABW")),
+                        fprops = list(D = fp_text(font.family = "Symbol"),
+                                      A = fp_text(font.family = "Times New Roman", vertical.align = "subscript"))) %>% 
+  flextable::display(col_key = "calcCO2vols_increase", part = "header",
+       pattern = "{{D}}{{A}}", 
+       formatters = list(D ~ as.character("D"),
+                         A ~ as.character("calcCO2vols")),
+                         fprops = list(D = fp_text(font.family = "Symbol"),
+                                       A = fp_text(font.family = "Times New Roman")))
+ vanitytable
+```
+
+
+#modeling FPH
+Observing the impacts of dryhopping in the presence of live yeast has led many brewing professionals to understand that FPH is a function of many of the variables above including hop variety,form_of_hops,harvestYear,OX,DH_temp,daysonhops,rouse,pounds_bbl.... Many have intuitively created a model in their heads (without necessarily thinking of it as such) and skillfully adjust process when necessary to account for this phenomenon.  In linear modeling, our function will take on the form:
+$FPH =  intercept + \beta_{1}X_{1} + \beta_{2}X_{2} + ... + \beta_{n}X_{n}$ where $\beta$ values are what we're attempting to derive in this modeling exercise, and X values are (collectively) a particular set of conditions.
+
+> pertinent quote:
+* "Multiple regression can be a beguiling, temptation-filled analysis. It’s so easy to add more variables as you think of them, or just because the data are handy. Some of the predictors will be significant. Perhaps there is a relationship, or is it just by chance?" 
+* "You can add higher-order polynomials to bend and twist that fitted line as you like, but are you fitting real patterns or just connecting the dots? All the while, the R-squared (R2) value increases, teasing you, and egging you on to add more variables!"
+- [Minitab](http://blog.minitab.com/blog/adventures-in-statistics-2/multiple-regession-analysis-use-adjusted-r-squared-and-predicted-r-squared-to-include-the-correct-number-of-variables "blog.minitab.com")
+
+#[Rigollet:  MIT OpenCourseWare 21.  Generalized Linear Models](https://www.youtube.com/watch?v=X-ix97pw0xY "Philippe Rigollet - Statistics for Applications")
+
+##Components of a linear model
+
+* "the first thing I'm going to do with my X is turn it into some X transpose beta - that's linear regression, it's something we can't change; it's the way it works; I'm not going to do anything non-linear"
+    + $X \to X^{\rm T} \beta$
+* reminder our linear regression model has the form $Y = X^{\rm T} \beta + \epsilon$, where
+    + $\epsilon \sim N  (\mu(X),\sigma^{2})$  ("epsilon has mean mu and variance sigma squared")
+
+* The two components (that we are going to *relax*) are
+    + Random component:  the response variable $(Y \mid X)$ is continuous and normally distributed with mean $\mu = \mu(X) =  \mathrm{E}(Y \mid X)$.
+    + Link: between random and covariates:
+        - $X = (X^{(1)}, X^{(2)},...,X^{(p)})^{\rm T} : \mu(X) = X^{\rm T} \beta$.
+
+##[Generalization](https://www.youtube.com/watch?v=X-ix97pw0xY&t=360s)
+[as stated above the fact that we are doing *linear* regression will not change. In generalized *linear* models, however...] "the two things I *am* going to change are 
+
+1. the random component $(Y \mid X)$ that used to be some Gaussian with mean $\mu(X)$ and variance $\sigma^{2}$ ($(Y \mid X) \sim N  (\mu(X),\sigma^{2})$) is going to become $(Y \mid X) \to$ some [particular] distribution from the exponential family"
+2. the link between random and covariate, where $\mu(X)$ used to be *directly* equal to $X^{\rm T} \beta$, will now be extended to some function $\to g(\mu(X)) = X^{\rm T} \beta$ 
+    + note: this relationship might more generally be expressed as $\to \mu(X) = f(X^{\rm T} \beta)$ but we choose to express in terms of g (the inverse of f;  $g = f^{-1}$) because g is our *link function*  
+
+[phone beep "wow I'm inpresentation mode that should not happen"](https://www.youtube.com/watch?v=X-ix97pw0xY&t=420s)
+    * "anything we can model with Gaussian extends fairly nicely to the exponential family of distributions"
+
+* A generalized linear model (GLM) generalizes normal linear regression models in the following directions
+    + Random component:
+        - Y ~ some exponential family distribution
+    + Link: between random and covariates:
+        - $g(\mu(X)) = X^{\rm T} \beta$
+        - where g is called a *link function* and $\mu = \mathrm{E}(Y \mid X)$
+        
+##[Example1 *log link*:  count data in disease epidemic outbreak](https://www.youtube.com/watch?v=X-ix97pw0xY&t=870s)
+discusses using Poisson distribution to model a disease epidemic outbreak (exponential family of equations applies)
+
+>"In the early stages of a disease epidemic, the rate at which new cases occur can often increase exponentially through time.  Hence, if $\mu_{i}$ is the expected number of new cases on day $t_{i}$, a model of the form: 
+$$\mu_{i}=\gamma exp(\delta t_{i})$$
+seems appropriate.
+
+* such a model can be turned into GLM form, by using *log link* so that
+$$log(\mu_{i})=log(\gamma) + \delta t_{i} = \beta_{0} + \beta_{1}t_{i} $$
+* Since this is a count, the [*Poisson distribution*](https://www.youtube.com/watch?v=3z-M6sbGIZ0 "Khan Academy Poisson process 1") (with expected value $\mu_{i}$) is probably a reasonable distribution to try. "That's how insurer's think.  I have a certain number of claims, I will use Poisson to model it."
+
+
+##[Example2: *repiprocal link*:  count data for predator kills with increasing density of prey](https://www.youtube.com/watch?v=X-ix97pw0xY&t=1320s)
+discusses Prey Capture Rate (~22:00) (analagous to enzyme running out of substrate)
+
+>"The rate of capture of preys, $y_i$, by a hunting animal, tends to increase with increasing density of prey, $x_i$, but to eventually level off, when the predator is catching as much as it can cope with.  A suitable model for this situation might be 
+
+$$\mu_{i}=\frac{\alpha x_{i}}{h +x_{i}}$$
+
+> where $\alpha$ represents the maximum capture rate, and *h* represents the prey density at which the capture rate is half the maximum rate.
+
+
+* we do some alegbra (take inverse of $\mu_i$) and get $\mu_i \sim \frac{h}{\alpha}* \frac{1}{x_i} +\frac{1}{\alpha}$
+* we think of this as linear model and $\frac{1}{\alpha}$ becomes our $\beta_0$ and $\frac{h}{\alpha}$ becomes our $\beta_1$ for our equation $\mu_i \sim  \beta_0 + \beta_1 * \frac{1}{x_i}$
+* link to $\frac{1}{x} is called a *reciprocal link*$
+
+
+
+
+##[Example3: *? link* binary response ](https://www.youtube.com/watch?v=X-ix97pw0xY&t=1555s)
+
+> The Kyphosis data consist of measurement on 81 children following corrective spinal surgery.  The binary response variable, Kyphosis, indicates the presence or absence of a postoperative deforming.  The three covariates are Age of child (in months), Number of vertebrae involved in the operation, and the Start range of the vertebrae involved.
+
+* The response variable is binary so there is no choice:  $(Y \mid X)$ is *Bernoulli* with expected value $\mu (X) \in (0,1)$.
+* we cannot write $\mu(X) = X^{\rm T} \beta$ because the right-hand side ranges through all real numbers
+* We need an *invertible function* $f$ such that $f(X^{\rm T} \beta) \in (0,1)$
+* In other words probabilities must be a number between zero and 1
+###[Rigollet discusses the "army of invertible functions" relevent to Bernoulli/frequency distributions / *distribution functions* in Example 3](https://www.youtube.com/watch?v=X-ix97pw0xY&t=1680s)
+
+
+#RESUMEHERE
+
+
+
+
+
+
+
+
+
+# Christoph Scherber [Mixed Effects Models with R](https://www.youtube.com/watch?v=VhMWPkTbXoY "Youtube video") 
+discusses how blocks in Oats dataset (in nlme package) invoke 'random effects'.  This is analogous to (triplicate) 250mL samples collected from 800bbl fermenter.
+
+
+
+
+
+
+
+#modeling FPH (revisited)
+To make our model of the *Freshening Power of* **Centennial** *Hops*, we will narrow down the dataset as follows:
+*filter only include variety=="CENT"
+*remove the "rouse" samples (rousing did not significantly impact FPH)
+*create some "anchor rows" for time zero, to tell our model that there was zero ABW increase the moment hops were added. Even if we did have time zero data (we don't in most cases), instrument noise would likely cause extreme values in calculations and be problematic for modeling purposes.
+
+```{r}
+## narrow down dataset to only include Centennial hops, remove the "rouse" samples
+mydata<- FPHcalc %>% filter(variety=="CENT"&rouse==FALSE)
+
+```
+
+
+
+```{r}
+#time zero rows "anchor rows"
+## since we know for certain that at time zero, the true dry-hop induced ethanol increase is zero.  Some time-zero rows we make "by hand" will reflect this reality much better than using real data that in this case.  (our real data at time zero is mostly instrument noise).
+## we'll make three identical rows per
+
+unique_rows <- !duplicated(FPHcalc[c("variety","OX","harvestYear", "form_of_hops", "DH_temp")])  ## identify unique combinations
+df <- FPHcalc[unique_rows,]     ## subset unique combinations
+df$daysonhops<- 0
+df$timeofaddition<- 0
+df$ABV<- 0
+df$ABW<- 0
+df$OE<- 0
+df$Er<- 0
+df$Ea<- 0
+df$SG<- 0
+df$RDF<- 0
+df$ADF<- 0
+df$dhop_day<- 0
+df$contact_days<- 0
+df$ABV_increase<- 0
+df$ABW.REF_NH<- 0
+df$ABW_increase<- 0
+df$FPH_EtOH<- 0
+df$FPH_CO2<- 0
+timezerorows<-rbind(df,df)    ### duplicates
+timezerorows<-rbind(timezerorows,df)  ### triplicates
+#FPHcalc<-rbind(FPHcalc,timezerorows)  ### triplicates
+
+```
+
+
+
+Now a simple linear model:
+```{r}
+model_fixedeffects<- lm(FPH_EtOH~daysonhops*form_of_hops*DH_temp,data=mydata)
+summary(model_fixedeffects)
 ```
 Above:  estimated coefficients for the model (equation):
 FPH = 0.31807+ 0.0417(daysonhops)+0.84862(form_of_hopsground)+0.21417(form_of_hopspellet) 
@@ -160,6 +480,26 @@ The base case is where form_of_hops is "cone" (the first on an alphabetic list o
 
 # why are interactions NA?
 (if we add 'dummy rows' with zeroes for FPH, time on hops, etc we get interactions...)
+
+
+
+
+
+
+
+## following 
+
+Multilevel Modeling in R, Using the nlme Package
+William T. Hoyt (University of Wisconsin-Madison)
+David A. Kenny (University of Connecticut)
+March 21, 2013
+davidakenny.net/papers/k&h/MLM_R.pdf
+
+
+
+
+
+
 
 
 
@@ -179,6 +519,7 @@ each interaction has it's own intercept
 ```{r}
 coef1<-as.data.frame(coef(model_fixedeffects))
 #coef2<-as.data.frame(coef(model_randomeffects))
+coef1
 ```
 
 
@@ -197,5 +538,7 @@ coef1<-as.data.frame(coef(model_fixedeffects))
 
 
 
-
+```{r}
+sessionInfo()
+```
 
