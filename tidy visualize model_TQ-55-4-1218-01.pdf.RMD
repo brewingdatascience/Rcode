@@ -1,0 +1,343 @@
+---
+title: 'Maye2018:  Hidden Secrets of the NEIPA (TQ-55-4-1218-01.pdf)'
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r pkgload, include=FALSE}
+library(pdftools)
+library(readxl)       ## import Microsoft Excel files
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(tidyverse) 
+
+library(gtable)   # for column-wise heatmap
+library(grid)     # for column-wise heatmap
+library(gridExtra)  # for column-wise heatmap
+#library(viridis) ## circle plot
+
+#install.packages("data.table")
+#library(data.table)   ##Error in library(data.table) : there is no package called ‘data.table’
+#install.packages("data.table", dependencies=TRUE)
+library(data.table)
+library(memisc)
+
+#install.packages("ggradar", dependencies=TRUE)   ## for spider charts
+#library(ggradar)  ## ‘ggradar’ is not available (for R version 3.5.2)
+```
+
+
+# import, tidy, scale, normalize
+```{r dataprep, echo=FALSE}
+rm(list = ls()) # clear workspace
+dat <- pdftools::pdf_text("TQ-55-4-1218-01.pdf")
+dat <- paste0(dat, collapse = " ")
+pattern <- "Beer\\s+Humulinones(.)*119"             ## pattern for Table 2
+extract <- regmatches(dat, regexpr(pattern, dat))
+extract <- gsub('\n', "  ", extract)
+myvector <- unlist(strsplit(extract, "\\s{2,}"))
+myvector <- gsub(",","",myvector)                   #remove commas
+## must fill by rows therefore can't use x <- matrix(myvector, nrow=13, ncol=8)
+## filledbycolumns<-as.data.frame(x)
+emptyarray <- array(dim = c(13,8))                  # empty array with Table dimensions
+# aperm to transpose array
+aperm_array <- aperm(emptyarray)                    
+aperm_array[,] <- myvector                          
+df <- as.data.frame(aperm(aperm_array))  
+write.csv(df, "fastformat.csv", row.names = F)
+df <- read.csv("fastformat.csv", stringsAsFactors = F, strip.white = T)
+names(df)<-df[1,]                                   # assign headers
+df<- slice(df[2:13,])                               # slice rows of data
+dput(names(df))
+## short headers with simple fonts
+names(df)<-c("beer", "ox.alpha", "iso.alpha", "alpha", "myrcene", "xantho", "beta", "NTU")
+write.csv(df, "t2_NEIPAs.csv", row.names = F)
+rm(list = ls()) # clear workspace
+df <- read.csv("t2_NEIPAs.csv", stringsAsFactors = F, strip.white = T)
+df$NTU<-as.numeric(df$NTU)
+mymatrix <- as.matrix(df[,-1])
+rownames(mymatrix) <- df$beer
+
+t2_NEIPAs <- df
+neipas <- mymatrix
+
+#nucleartidy:  data.table melt function (and spider chart)
+melted.t2_NEIPAs<-melt(t2_NEIPAs)
+
+#columnwise z-scores
+scaled.neipas<- as.data.frame(scale(neipas))
+rownames(scaled.neipas) <- t2_NEIPAs$beer
+scaled.t2_NEIPAs <- as.data.frame(cbind(beer= t2_NEIPAs$beer, scaled.neipas))
+scaled.gatherNTU <- scaled.t2_NEIPAs %>% gather(measurement,value, -NTU, -beer)
+melted.scaled.t2_NEIPAs <-melt(scaled.t2_NEIPAs)
+
+#data.table columnwise z-scores
+DT<- data.table(t2_NEIPAs)
+DT.melted <- data.table(melted.t2_NEIPAs)
+DT.scaled.melted <-DT.melted[, scaled := scale(value), by = "variable"]
+
+# normalize 
+df<- t2_NEIPAs
+lst <- lapply(df[-1], function(x) round((x-min(x))/(max(x)-min(x)), 2))
+df <- cbind(df[1], do.call(cbind.data.frame, Map(cbind , df[-1], lst)))
+df <- df %>% dplyr::select(beer, contains(".2"))
+colnames(df) = gsub(".2", "", colnames(df))
+norm.t2_NEIPAs<- df
+norm.neipas <- norm.t2_NEIPAs[,-1]
+rownames(norm.neipas) <- t2_NEIPAs$beer
+norm.gatherNTU <- norm.t2_NEIPAs %>% gather(measurement,value, -NTU, -beer)
+melted.norm.t2_NEIPAs <-melt(norm.t2_NEIPAs)
+
+t2_NEIPAs
+```
+
+These NTU values seem low compared to the FTU numbers we get from Optek DT9011.  But the instrument and sample prep were different.  Not sure how to compare. We could purchase formazin standard if we want to get to the bottom of it.
+
+"Turbidity measurements of the NEIPAs (brought to room
+temperature and degassed via bath sonication) were made using
+a VWR Scientific model 34100-787 turbidity meter. For beer
+samples with turbidity >200 NTU, samples were diluted with
+reverse osmosis (RO) water, and the turbidity measurement was
+multiplied by the dilution factor. A 1,000 NTU turbidity standard
+(formazin standard from Aldrich Chemical Co.) was diluted
+with RO water to calibrate the turbidity meter; the calibration
+curve required a second-order polynomial fit."
+
+
+```{r}
+summary(neipas)  ## of Table 2. Detailed HPLC analyses of hop compounds (mg/L) of all 12 New England IPA beers and turbidity
+```
+
+
+
+# columnwise heatmap
+```{r columnwise.heat.map}
+# based on https://stackoverflow.com/questions/44141060/how-to-formatting-numbers-by-column-in-a-table-tablegrob  (function from AkselA)
+
+mydata <- neipas
+# a simple function to scale each column to the range [0, 1]
+norm <- function(x) {
+    apply(x, 2, function(y){(y-min(y))/(max(y)-min(y))})
+}
+bluecol <- colorRamp(c("#DDDDFF", "#AABBFF", "#3366EE"))(norm(mydata))
+bluecol <- rgb(bluecol[, 3], bluecol[, 2], bluecol[, 1], max=255)
+tt <- ttheme_default(core=list(bg_params=list(fill=bluecol)))
+g <- tableGrob(mydata, theme=tt)
+g <- gtable_add_grob(g,
+    grobs = rectGrob(gp = gpar(fill = NA, lwd = 2)),
+    t = 2, b = nrow(g), l = 1, r = ncol(g))
+g <- gtable_add_grob(g,
+    grobs = rectGrob(gp = gpar(fill = NA, lwd = 2)),
+    t = 1, l = 1, r = ncol(g))
+grid.newpage()  ## newpage must be called for draw to appear in R Notebooks
+grid.draw(g)
+```
+\pagebreak
+
+# stacked bar plot
+```{r}
+mydata <- melted.norm.t2_NEIPAs
+ggplot() + geom_bar(aes(y=value,
+                        x=beer,
+                        fill=variable),
+                    data=mydata,
+                    stat="identity") + ylab("sum of normalized values") + ggtitle("stacked bars of normalized values")
+```
+
+
+\pagebreak
+
+# radar charts
+```{r radar.chart}
+mydata<- melted.norm.t2_NEIPAs
+
+p1<- ggplot(data=mydata,  aes(x=beer, y=value, group=variable, colour=variable)) + 
+  geom_point(size=2) + geom_line() + 
+  xlab("this is x") +  ylab("this is y") + 
+  ylim(0,1) + ggtitle("radar chart 1")  + 
+  geom_hline(aes(yintercept=0), lwd=1, lty=2) + coord_polar()
+
+p2<- ggplot(data=mydata,  aes(x=variable, y=value, group=beer, colour=beer)) + 
+  geom_point(size=2) + geom_line() + 
+  ylim(0,1) + ggtitle("radar chart 2")  + 
+  geom_hline(aes(yintercept=0), lwd=1, lty=2) + coord_polar()
+  
+grid.arrange(p1, p2, ncol = 2)
+```
+\pagebreak
+
+# coord_radar function for spider charts (straight lines connecting dots)
+```{r spider.chart}
+
+mydata<- melted.norm.t2_NEIPAs
+
+# function from Erwan Le Pennec: From Parallel Plot to Radar Plot as cited at https://stackoverflow.com/questions/42562128/ggplot2-connecting-points-in-polar-coordinates-with-a-straight-line-2
+coord_radar <- function (theta = "x", start = 0, direction = 1) {
+  theta <- match.arg(theta, c("x", "y"))
+  r <- if (theta == "x") "y" else "x"
+  ggproto("CordRadar", CoordPolar, theta = theta, r = r, start = start, 
+          direction = sign(direction),
+          is_linear = function(coord) TRUE)
+}
+
+ggplot(data=mydata,  aes(x=variable, y=value, group=beer, colour=beer)) + geom_point(size=1) + geom_line() + 
+  xlab("measurement") +  ylab("normalized value") + 
+  ylim(0,1) + ggtitle("spider chart of beers")  + coord_radar()
+```
+\pagebreak
+
+# spider chart of subsets (beers with high and low Z score for NTUs)
+```{r spider2}
+## create separate dataframes for most and least hazy  
+df<- norm.t2_NEIPAs %>% arrange(desc(NTU))
+mosthazy <-melt(df[1:5,])
+leasthazy <-melt(df[6:10,])
+
+# function from Erwan Le Pennec: From Parallel Plot to Radar Plot as cited at https://stackoverflow.com/questions/42562128/ggplot2-connecting-points-in-polar-coordinates-with-a-straight-line-2
+coord_radar <- function (theta = "x", start = 0, direction = 1) {
+  theta <- match.arg(theta, c("x", "y"))
+  r <- if (theta == "x") "y" else "x"
+  ggproto("CordRadar", CoordPolar, theta = theta, r = r, start = start, 
+          direction = sign(direction),
+          is_linear = function(coord) TRUE)
+}
+p1 <- ggplot(data=mosthazy,  aes(x=variable, y=value, group=beer, colour=beer)) + geom_point(size=1) + geom_line() + 
+  xlab("measurement") +  ylab("normalized value") + 
+  ylim(0,1) + ggtitle("spider chart of most hazy beers")  + coord_radar()
+p2 <- ggplot(data=leasthazy,  aes(x=variable, y=value, group=beer, shape=beer)) + geom_point(size=1) + geom_line() + 
+  xlab("measurement") +  ylab("normalized value") + 
+  ylim(0,1) + ggtitle("spider chart of least hazy beers")  + coord_radar()
+grid.arrange(p1, p2, ncol = 2)
+```
+
+
+# "stacked spider chart"
+```{r stacked.spider.chart}
+mydata <- melted.norm.t2_NEIPAs
+
+p = ggplot(data=mydata, aes(x=beer, y=value, group=variable))
+p + geom_area(aes(color=variable, fill=variable)) + coord_polar()
+```
+\pagebreak
+
+# stacked area chart
+```{r stacked.area.chart}
+mydata<- norm.gatherNTU
+p1<-ggplot(mydata, aes(x=value, y=NTU, fill=measurement)) + geom_area()
+p2<- ggplot(mydata, aes(x=value, y=NTU, fill=measurement)) +
+    geom_area(colour="black", size=.2, alpha=.4) +
+    scale_fill_brewer(palette="Greens", breaks=rev(levels(norm.gatherNTU$measurement)))
+
+grid.arrange(p1, p2, ncol = 2)
+```
+\pagebreak
+
+# scatter plot of normalized values (NTU vs other measurements)
+```{r scatter.plot}
+mydata<- norm.gatherNTU
+
+ggplot(mydata, aes(y=NTU,
+                  x=value,
+                  color=measurement)) +
+#                 , shape=beer)) +
+geom_point(size=2) +
+geom_line() +
+ylab("NTU (normalized)") +
+xlab("other measurement (normalized)") 
+```
+note: in the case above, each beer is a horizontal row of dots
+
+\pagebreak
+
+# correlation matrix
+```{r Amunategui.flattenSquareMatrix}
+mydata<- neipas
+## following  Manuel Amunategui  https://www.youtube.com/watch?v=igPQ-pI8Bjo
+## Using Correlations To Understand Your Data: Machine Learning With R 
+##functions for flattenSquareMatrix
+cor.prob <- function (X, dfr=nrow(X) -2) {
+  R<- cor(X, use="pairwise.complete.obs")
+  above<- row(R) < col(R)
+  r2 <- R[above]^2
+  Fstat<- r2 * dfr/(1-r2)
+  R[above] <- 1- pf(Fstat, 1, dfr)
+  R[row(R) == col(R)] <- NA
+  R
+}
+flattenSquareMatrix <- function(m) {
+  if( (class(m) != "matrix") | (nrow(m)!=ncol(m))) stop("Must be a square matrix.")
+  if(!identical(rownames(m), colnames(m))) stop("Row and column names must be equal.")
+  ut <- upper.tri(m)
+  data.frame(i = rownames(m)[row(m)[ut]],
+             j = rownames(m)[col(m)[ut]],
+             cor=t(m)[ut],
+             p=m[ut])
+}
+corMasterList<- flattenSquareMatrix(cor.prob(mydata))    ## list of all correlations
+corlist<- corMasterList[order(-abs(corMasterList$cor)),]  ## order by strength of correlation
+corlist[corlist$j=="NTU",]
+```
+Strongest correlations with NTU in descending order are xanthohumol (R= `r cor(as.numeric(t2_NEIPAs$NTU), t2_NEIPAs$xantho)`) and lupulones (R= `r cor(as.numeric(t2_NEIPAs$NTU), t2_NEIPAs$beta)`).  Fairly strong correlations with everything except isohumulones (R= `r cor(as.numeric(t2_NEIPAs$NTU), t2_NEIPAs$iso.alpha)`).
+
+\pagebreak
+
+# linear model (NTU as a function of normalized measurements)
+```{r linearmodel}
+mymodel <- lm(NTU~alpha*beta*xantho, data=norm.neipas)
+summary(mymodel)
+```
+According to this model of these data, NTUs can be predicted almost entirely from alpha,beta, and xathohumol values.  Interactions with xanthohumol are the most impactful components.  
+
+\pagebreak
+
+
+
+
+# compare multiple models with mtable function in package memisc
+```{r}
+
+lm1<-lm(NTU~xantho, data= norm.t2_NEIPAs)
+lm2<-lm(NTU~beta*xantho, data= norm.t2_NEIPAs)
+lm3<-lm(NTU~myrcene*beta*xantho, data= norm.t2_NEIPAs)
+lm4<-lm(NTU~alpha*beta*xantho, data=norm.neipas)
+
+mtable1234 <- mtable("Model 1"=lm1,"Model 2"=lm2,"Model 3"=lm3, "Model 4"=lm4,
+                    summary.stats=c("sigma","R-squared","F","p","N"),show.eqnames=T)
+mtable1234b <- relabel(mtable1234,
+                      "(Intercept)" = "Constant",
+                      SG = "Specific Gravity",
+                      ABW = "ABW = Ethanol (w/w)",
+                      Er = "Er = Residual Extract (g/100mL)"
+                      )
+mtable1234
+#show_html(mtable1234b)
+
+
+```
+According to this model of these data, NTUs can be predicted almost entirely from myrcene,beta, and xanthohumol values.  The most impactful components of this model (in terms of positive contribution to haze) are interactions between lupulones and xanthohumol (R = 
+
+
+r model.frame(lm4)[4, 1])
+
+
+Table2:
+beer humulinones  isoalpha  alpha myrcene xanthohumol beta  NTU
+A	34.6	18.2	31.8	1.2	3.5	9.1	1774
+B	37.9	26.7	72.1	2.5	3.0	8.3	1328
+C	38.4	11.4	48.0	2.4	3.1	14.0	1071
+D	23.5	21.3	31.8	2.3	2.1	5.6	654
+E	12.0	20.0	32.2	1.7	2.0	5.4	410
+F	34.5	31.7	34.4	1.7	1.5	4.3	299
+G	16.2	22.8	17.2	0.6	1.7	1.3	226
+H	19.6	21.8	27.7	1.3	1.3	3.6	224
+I	25.4	16.9	20.7	0.5	1.8	2.3	173
+J	25.5	5.5	23.1	0.7	1.0	1.9	147
+
+```{r}
+sessionInfo()
+```
+
+
