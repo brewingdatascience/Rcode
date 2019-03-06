@@ -75,24 +75,24 @@ ascii font/art from <http://www.network-science.de/ascii/>
 #                      |__| |__\____ |/ ____|
 #                                   \/\/     
 #                                    \/
-#                                     |
-#                                     |
-#                                     |
+#                                    ||
+#                                    ||
+#                                    ||
 #              _                     /\               
 #             | |_ _ _ __ _ _ _  ___/ _|___ _ _ _ __  
 #             |  _| '_/ _` | ' \(_-<  _/ _ \ '_| '  \ 
 #              \__|_| \__,_|_||_/__/_| \___/_| |_|_|_|
-#                         /                      \
-#                        /                        \
-#                       /                          \
-#                      /                            \
-#          _          /   _ _                        \    _     _ 
+#                        //                      \\
+#                       //                        \\
+#                      //                          \\
+#                     //                            \\
+#          _         //   _ _                        \\   _     _ 
 #     __ _(_)____  _ __ _| (_)______        _ __  ___  __| |___| |
-#     \ V / (_-< || / _` | | |_ / -_) _____| '  \/ _ \/ _` / -_) |
+#     \ V / (_-< || / _` | | |_ / -_)======| '  \/ _ \/ _` / -_) |
 #      \_/|_/__/\_,_\__,_|_|_/__\___|      |_|_|_\___/\__,_\___|_|
 ```
 
-This is primarily an excercise in data wrangling (tidy+transform) and markdown formatting using R Studio.  In that context, this analysis is a *preliminary* attempt to develop practical metrics for *Hop Freshening Power* (syn. 'dryhop creep', 'ABV creep', 'dry-hop creep') and to model this aspect of the warm-dryhopping process. 
+This is primarily an excercise in data wrangling (tidy+transform) and markdown formatting using R Studio.  In that context, this analysis is a *preliminary* exploration of potential metrics for *Hop Freshening Power* (synonyms: 'dryhop creep', 'ABV creep', 'dry-hop creep') and to model this aspect of the warm-dryhopping process. 
 
 ## Statement of Problem
 The warm-dryhopping process can profoundly impact the body, alcohol and vicinal diketone content of the beer.  A common metric for this phenomenon has not been established.
@@ -109,11 +109,11 @@ Through experience in brewing we know that **endpoints** of dryhopping include:
 
 Experiments were carried out where 
 
-1. multiple replicate 250-mL samples were collected into 12oz amber bottles
-    1. the samples were randomized into groups of three
-        * some groups were dry-hopped (treatment) at roughly 1.0 pounds/bbl
-        * some groups were not (control)
-2. all were hand-crimped with foil, stored for various times (mostly at room temp, a few in the cold), then tested on an Anton Paar DMA4500/Alcolyzer classic
+1. multiple replicate 250-mL samples of [nearly] end-fermented beer were collected from fermenters into 12oz amber bottles
+1. the samples were randomized into groups of three, then each group was either
+    * dry-hopped at ~1.0 pounds/bbl (treatment), or
+    * not dry-hopped (control)
+1. all were hand-crimped with foil, stored for various times (mostly at room temp, a few in the cold), then tested on an Anton Paar DMA4500/Alcolyzer classic
         
 Focusing on *ethanol increase as the endpoint*, we know these to be **relevant factors**:
 
@@ -174,7 +174,7 @@ test_df$brew_date.POSIXct <-as.POSIXct(mydata$brew_date, format = "%m/%d/%Y")  #
 
 * ADVANCED data wrangling: 
     * create multiple date columns using FORLOOP
-(here we take advantage of the pattern that of our (character) date/time columns have the string "date" in the headername.  First make character vector of all column names containing string "date", then run FORLOOP over each date column).  This forloop will convert datecols into POSIXct format (R/universal datetime format).  In general they say it's  **best to avoid forloops** in general, and **in this case you would probably use functions from lubridate package** - and in general be aware there's probably a specific tool for the task at hand)!!
+(here we take advantage of the pattern that of our (character) date/time columns have the string "date" in the headername.  First make character vector of all column names containing string "date", then run FORLOOP over each date column).  This forloop will convert datecols into POSIXct format (R/universal datetime format).  They say it's  **best to avoid forloops** in general, and **in this case you would probably use functions from lubridate package** - and in general be aware there's probably a specific tool for the task at hand)!!
 ```{r}
 datecols<- dput(names(dplyr::select(mydata, matches("date"))))  ## headers containing string "date" => c("brew_date", "sample_collection_date", "dryhop_date", "Test_Date")
 ## FORLOOP
@@ -184,8 +184,11 @@ for (icol in datecols) {
   mydata[, newcol] = as.POSIXct(mydata[, icol],format = "%m/%d/%Y") ###  CREATE NEW columns with POSIXct   
 #  mydata[, newcol] = as.POSIXct(as.numeric(mydata[, icol])  * (60*60*24), origin="1899-12-30") ###  microsoft times
 }
+```
+
 
 ## create dayofaddition, daysonhops, hops_g_100mL, pounds_bbl variables with dplyr "mutate"
+```{r}
 mydata<- mydata %>% 
   mutate(dayofaddition = as.numeric(difftime(dryhop_date.POSIXct,brew_date.POSIXct)),
          daysonhops = as.numeric(difftime(Test_Date.POSIXct,dryhop_date.POSIXct)),
@@ -276,10 +279,9 @@ colnames(mean.REF_NH) = gsub("_mean", ".NHgroup", colnames(mean.REF_NH))
 ```
 
 
-##compute $\Delta$ values 
+##compute $\Delta$ values using objects created above...
 * difference of each ABV,ABW,Ea, and SG data point from corresponding mean.REF_NH values (unhopped samples in same EXPTnew group)
 ```{r}
-## using objects created above...
 ## first join our data with mean ABV for unhopped samples in given experiment (mean.REF_NH; calculated above)
 
 FPHcalc<- left_join(mydata, mean.REF_NH, by="EXPTnew")
@@ -298,23 +300,27 @@ FPHcalc<- FPHcalc %>% filter(hop=="DH")
 ## *calcalate* corresponding CO2 production 
 * following Bamforth (describing Balling equation) "...more realistically, the ethanol yield is more like 0.46 g and carbon dioxide 0.44 g from 1 g sugar"  (p. 137 in Brewing Materials and Processes: A Practical Approach to Beer Excellence, Edited by Charles Bamforth Academic Press, 2016)
 ```{r}
-
 FPHcalc$calcCO2_increase <- FPHcalc$delta.ABW*(0.44/0.46)
 ##convert calcCO2_increase (in g/100mL) to calculated CO2 volumes added
 ## g/L = 10* g/100mL
 ## The conversion factor from volumes of CO2 to CO2 by weight (g/L) is 1.96. For example: 2.5 volumes x 1.96 = 4.9 g/l.
 FPHcalc$calcCO2vols_increase <- FPHcalc$calcCO2_increase*10/1.96
+```
 
-## and define "FPH" as amount produced per % dry-hops added (in g/100mL):
+
+
+## define "FPH" as amount produced per % dry-hops added (in g/100mL):
+```{r}
 FPHcalc$FPH_EtOH = FPHcalc$delta.ABW/FPHcalc$hops_g_100mL
 FPHcalc$FPH_CO2 = FPHcalc$calcCO2_increase/FPHcalc$hops_g_100mL
+FPHcalc$FPH_plato = FPHcalc$delta.plato/FPHcalc$hops_g_100mL
 
 ## and save the transformed data to csv:
 write.csv(FPHcalc,"FPHcalc.csv", row.names = FALSE)
 FPHcalc <- read.csv("FPHcalc.csv", stringsAsFactors = TRUE)
 
 df<- FPHcalc %>% group_by(EXPTnew) %>%
-  summarise_at(vars(hops_g_100mL,pounds_bbl,delta.ABV, delta.ABW,delta.plato, delta.SG, FPH_EtOH, FPH_CO2, calcCO2vols_increase),funs(mean)) %>%
+  summarise_at(vars(hops_g_100mL,pounds_bbl,delta.ABV, delta.ABW, delta.plato, FPH_plato, FPH_EtOH, FPH_CO2, calcCO2vols_increase),funs(round(mean(.), 2))) %>%
   arrange(desc(FPH_EtOH)) 
 df
 ```
@@ -324,7 +330,7 @@ df
 
 
 
-## normalize $\Delta$ values relative to the exact amount of hops added
+# intermission?
 
 
 
@@ -332,7 +338,7 @@ df
 
 
 # visualize
-# vector~vector*vector plots
+## vector~vector*vector plots
 ```{r regression.2}
 df <-FPHcalc
 p1<- ggplot(df, aes(y=FPH_EtOH,x=OE, color=contact_days)) + geom_point(size=2)
@@ -344,7 +350,7 @@ grid.arrange(p1, p2, p3, p4, ncol = 2)
 
 
 
-# x~y*(4 vectors) by color
+## x~y*(4 vectors) by color
 ```{r regression.4plot.color}
 df <- FPHcalc
 x<- df$Ea
@@ -357,7 +363,7 @@ p4<- ggplot(df, aes(x,y, color=pounds_bbl)) + geom_point(size=2)
 grid.arrange(p1, p2, p3, p4, ncol = 2)
 ```
 
-#Amunategui "Using Correlations To Understand Your Data"
+## Amunategui "Using Correlations To Understand Your Data"
 ```{r Amunategui}
 mydata<-FPHcalc %>% dplyr::select(expt,variety,form_of_hops,pounds_bbl,rouse,daysonhops,DH_temp,brew_date,ABW,SG,OE,ADF,RDF,calcCO2vols_increase,FPH_CO2, FPH_EtOH)  ## last one is 100% in j
 
@@ -397,14 +403,15 @@ corlist <- corlist %>% dplyr::filter(j=="FPH_EtOH")   ## filter specific endpoin
 head(corlist,50)
 ```
 
-# pairs.panels correlation matrix from library(psych)
+## pairs.panels correlation matrix from library(psych)
 ```{r}
 ## specify interesting variables:  
 interestingvariables<-c("ABW", "pounds_bbl", "daysonhops", "calcCO2vols_increase") 
 pairs.panels(mydummifieddata[c(interestingvariables, "FPH_EtOH")])
 ```
 
-#modeling Overview
+
+#model
 Observing the impacts of dryhopping in the presence of live yeast has led many brewing professionals to understand that FPH is a function of many of the variables above including hop variety,form_of_hops,harvestYear,OX,DH_temp,daysonhops,rouse,pounds_bbl.... Many have intuitively created a model in their heads (without necessarily thinking of it as such) and skillfully adjust process when necessary to account for this phenomenon.  In linear modeling, our function will take on the form:
 $FPH =  intercept + \beta_{1}X_{1} + \beta_{2}X_{2} + ... + \beta_{n}X_{n}$ where $\beta$ values are what we're attempting to derive in this modeling exercise, and X values are (collectively) a particular set of conditions.
 
@@ -413,7 +420,7 @@ $FPH =  intercept + \beta_{1}X_{1} + \beta_{2}X_{2} + ... + \beta_{n}X_{n}$ wher
 
 
 
-# linear models 1 (create models)
+## linear models 1 (create models)
 ```{r}
 df<-FPHcalc
 
@@ -432,7 +439,7 @@ plot(df$SG~df$Ea)
 abline(lm4)
 ```
 
-# linear models 2 (view residual plots)
+## linear models 2 (view residual plots)
 ```{r}
 df<-FPHcalc
 
@@ -450,7 +457,7 @@ plot(lm4$residuals)
 ```
 
 
-# compare linear models 
+## compare linear models using memisc package
 ```{r}
 df<-FPHcalc
 
@@ -477,7 +484,7 @@ mtable1234
 
 
 
-# compare linear models
+## compare more linear models
 ```{r}
 df <- FPHcalc
 lm1<-lm(FPH_EtOH~daysonhops, data=df)
@@ -522,6 +529,31 @@ Table 20.1. [Useful non-linear functions](https://www.cs.upc.edu/~robert/teachin
 | | Bell-shaped | $y = a exp(−ABS(bx)^2)$ | | tbd |
 | | Biexponential | $y = ae^{bx} − ce^{−dx}$  | | tbd |
 
+
+
+## Michaelis-menton model (Crawley p. 741)
+$y =\frac{ax}{1+bx}$
+
+```{r}
+expt2 <- FPHcalc %>% dplyr::filter(expt==" 2A") %>% dplyr::select(FPH_EtOH, rouse, daysonhops,brew_date, pounds_bbl,form_of_hops,ABW.NHgroup,dayofaddition)
+
+mymodel <- nls(FPH_EtOH~a*daysonhops/(1+b*daysonhops), data=expt2,start=list(a=8, b=0.08))
+
+summary(mymodel)
+
+```
+
+Using this model, the relationship between hop-induced ethanol production (FPH_EtOH) and hop contact time (daysonhops) can be expressed as:
+$FPH_EtOH = frac{0.183572*daysonhops}{1+0.066388*daysonhops}$
+
+
+```{r}
+x <- seq(0,50,0.1)
+yv <- predict(mymodel, list(daysonhops=x))
+{plot(expt2$daysonhops, expt2$FPH_EtOH, pch=21, col="purple", bg="green")
+  lines(x,yv,col="blue")}
+
+```
 
 
 
@@ -611,56 +643,45 @@ mydata <- mydata %>%
 colnames(mydata) = gsub(".POSIXct", "", colnames(mydata))
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#compute baseline ABW for each EXPTnew group
-meanABW.REF_NH<- mydata %>% 
+## mean NH (control) values for each EXPTnew group
+mean.REF_NH<- mydata %>% 
   group_by(EXPTnew) %>%
   filter(hop=="NH") %>%
-  summarise(ABW.REF_NH=mean(ABW))
+  summarise_at(vars(ABV, ABW, Ea, SG),funs(mean, n()))
+## replace "_mean" with "_NHgroup" in column names
+colnames(mean.REF_NH) = gsub("_mean", ".NHgroup", colnames(mean.REF_NH))
 
-## compute mean increase in ABW relative to meanABW.REF_NH (unhopped samples in same EXPTnew group), and normalize this relative to the exact amount of hops added
-## using objects created above...
-## first join our data with mean ABV for unhopped samples in given experiment (meanABW.REF_NH; calculated above)
 
-FPHcalc<- left_join(mydata, meanABW.REF_NH, by="EXPTnew")
 
-## now calculate ABW_increase by subtracting each individual ABW measurement from meanABW.REF_NH:
-FPHcalc$ABW_increase <- FPHcalc$ABW - FPHcalc$ABW.REF_NH
+FPHcalc<- left_join(mydata, mean.REF_NH, by="EXPTnew")
+
+## now calculate ABW_increase by subtracting each individual ABW measurement from mean.REF_NH:
+FPHcalc$delta.ABV <- FPHcalc$ABV - FPHcalc$ABV.NHgroup
+FPHcalc$delta.ABW <- FPHcalc$ABW - FPHcalc$ABW.NHgroup
+FPHcalc$delta.plato <- -(FPHcalc$Ea - FPHcalc$Ea.NHgroup)
+FPHcalc$delta.SG <- -(FPHcalc$SG - FPHcalc$SG.NHgroup)
 
 ## the control samples have served their purpose, now remove them from dataset. The following calculations are only meaningful for dry-hopped samples.  
 FPHcalc<- FPHcalc %>% filter(hop=="DH")
 
 
-## compute corresponding CO2 production following Bamforth (describing Balling equation) "...more realistically, the ethanol yield is more like 0.46 g and carbon dioxide 0.44 g from 1 g sugar"  (p. 137 in Brewing Materials and Processes: A Practical Approach to Beer Excellence, Edited by Charles Bamforth Academic Press, 2016)
-FPHcalc$calcCO2_increase <- FPHcalc$ABW_increase*(0.44/0.46)
+FPHcalc$calcCO2_increase <- FPHcalc$delta.ABW*(0.44/0.46)
 ##convert calcCO2_increase (in g/100mL) to calculated CO2 volumes added
 ## g/L = 10* g/100mL
 ## The conversion factor from volumes of CO2 to CO2 by weight (g/L) is 1.96. For example: 2.5 volumes x 1.96 = 4.9 g/l.
 FPHcalc$calcCO2vols_increase <- FPHcalc$calcCO2_increase*10/1.96
 
-## and define "FPH" as amount produced per % dry-hops added (in g/100mL):
-FPHcalc$FPH_EtOH = FPHcalc$ABW_increase/FPHcalc$hops_g_100mL
+
+FPHcalc$FPH_EtOH = FPHcalc$delta.ABW/FPHcalc$hops_g_100mL
 FPHcalc$FPH_CO2 = FPHcalc$calcCO2_increase/FPHcalc$hops_g_100mL
+FPHcalc$FPH_plato = FPHcalc$delta.plato/FPHcalc$hops_g_100mL
 
 ## and save the transformed data to csv:
 write.csv(FPHcalc,"FPHcalc.csv", row.names = FALSE)
 FPHcalc <- read.csv("FPHcalc.csv", stringsAsFactors = TRUE)
 
 df<- FPHcalc %>% group_by(EXPTnew) %>%
-  summarise_at(vars(hops_g_100mL,pounds_bbl, ABW_increase,FPH_EtOH, FPH_CO2, calcCO2vols_increase),funs(mean)) %>%
+  summarise_at(vars(hops_g_100mL,pounds_bbl,delta.ABV, delta.ABW, delta.plato, FPH_plato, FPH_EtOH, FPH_CO2, calcCO2vols_increase),funs(round(mean(.), 2))) %>%
   arrange(desc(FPH_EtOH)) 
 df
 ```
