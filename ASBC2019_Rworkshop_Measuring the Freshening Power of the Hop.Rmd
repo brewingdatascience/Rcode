@@ -1,22 +1,9 @@
 ---
-title: "R Notebook: Measuring the Freshening Power of the Hop"
+title: "R Notebook: Modeling the Freshening Power of the Hop"
 output: html_notebook
 ---
 
-
-*Step1:  Open this .RMD file in R Studio and click the "Preview" button above.  A formatted version should pop up in a browser window.  IF not, troubleshoot that!*
-
-> When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
-
-> The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
-
-> Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
-
-```{r}
-plot(cars)
-```
-
-> Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+> *Step1:  Open this .RMD file in R Studio and click the "Preview" button above.  A formatted version should pop up in a browser window.  IF not, troubleshoot that!*
 
 
 # manual outline
@@ -135,18 +122,25 @@ sessionInfo()
 #data wrangling
 #install.packages("dplyr")  # dplyr "data plyer"  
 library(dplyr)
-library(tidyverse)
+library(ggplot2)
 library(gridExtra)  # for grid.arrange in R markdown
+
+
+library(tidyverse)
+
 
 library(caret) # for dummyVars function
 library(psych) # for pairs.panels function
 library(memisc)  # compare models
 
+library(drc)  # "drc" = dose response curves (contains a suite of flexible and versatile model fitting and after-fitting functions)
+library(plotly)
+
 ```
 
 
-> flash forward! scroll to the bottom and run bigchunk_tidytransform
 
+> flash forward! scroll to the bottom and run bigchunk_tidytransform
 
 
 #import data
@@ -154,9 +148,57 @@ library(memisc)  # compare models
 rm(list = ls()) # clear workspace
 mydata <-read.csv("ujbc_a_1469081_sm5496.txt",stringsAsFactors = FALSE)  ## SPECIFY filename
 
+mydata %>% filter(expt ==" 2A") %>% dplyr::select(sample_id)
+
 #dput(names(mydata))
 
-test_df<- mydata # (identical dataframe to be used for testing/illustration)
+```
+
+
+
+# manual add time zero to "days on hops" experiment!
+Anton Paar data at time zero for kinetics experiment (triplicate samples run immediately after sample collection, while the remainder were being dry-hopped):
+Date	time	sample no.	ABV	ABW	OE (P)	Er	Ea	SG 20/20	RDF	ADF sample_id
+07/27/17	3:26 PM	03_	6.68	5.2	15.95	6.08	3.74	1.01462	63.88	76.58	JK1-20-41
+07/27/17	3:30 PM	04_	6.68	5.2	15.95	6.08	3.73	1.01461	63.89	76.6	JK1-20-50
+07/27/17	3:34 PM	05_	6.68	5.2	15.95	6.08	3.74	1.01462	63.88	76.58	JK1-20-87
+
+```{r}
+## fill in MISSING DATA :(  add time zero data for time series analysis)
+
+## nested ifelse to add time zero plato values for each expt:
+mydata<- mydata %>% mutate(., initial_plato = ifelse(expt==" 2A", 3.74, ifelse(expt==" 1A", 3.69, ifelse(expt==" 1B", 3.53, ifelse(expt==" 3B", 3.54, ifelse(expt==" 4B", 4.66, NA))))))
+                                             
+## add complete time-zero anton paar data for time series (expt2A)
+## quadruple-up each triplicate time-zero measurement (one copy for each NH/DH & rouse/still combo)
+## note:  this practice is of questionable statistical rigor.  In retrospect it would have been better (and a lot easier) to just run 12 samples through Anton on day0!
+timezero <- mydata %>% filter(expt==" 2A") %>% arrange(special_group) %>% slice(1:12)
+#data.entry(timezero)
+timezero$Test_Date <- rep(c("7/27/2017","7/27/2017","7/27/2017"),4)
+timezero$Test.time <- rep(c("3:26 PM", "3:30 PM", "3:34 PM"),4)
+timezero$ABV <- 6.68
+timezero$ABW <- 5.2
+timezero$OE <- 15.95
+timezero$Er <- 6.08
+timezero$Ea <- rep(c(3.74, 3.73, 3.74),4)
+timezero$SG <- rep(c(1.01462, 1.01461, 1.01462),4)
+timezero$RDF <- rep(c(63.88, 63.89, 63.88),4)
+timezero$ADF <- rep(c(76.58, 76.60, 76.58),4)
+timezero$Calories <- rep(c(215.37,215.34,215.35),4)
+timezero[timezero$hop=="DH",]$contact_days <-0
+timezero[,c(28:31)] <- 0
+mydata <- rbind(timezero,mydata)
+write.csv(mydata, "quickie.csv", row.names = FALSE)
+mydata<-read.csv("quickie.csv", stringsAsFactors = FALSE)
+
+###  this is a routine for inspecting data ###
+mydatatypes<- as.data.frame(cbind(sapply(mydata, class)))  ## table of datatypes
+mydatatypes$headers <- rownames(mydatatypes)    ## convert rownames to values
+na_count <-as.data.frame(sapply(mydata, function(y) sum(length(which(is.na(y)))))) ## count NAs by column
+mydataOverview<-as.data.frame(cbind(na_count,mydatatypes))  ## table of NA counts and datatypes
+names(mydataOverview) <- c("NA_count","Data_Class", "Header")
+sum(is.na(mydata))  ## total count of NA values in entire sheet (231 in this case)
+mydataOverview %>% filter(NA_count>0)    ## breakdown of NA values
 ```
 
 
@@ -167,6 +209,8 @@ test_df<- mydata # (identical dataframe to be used for testing/illustration)
 * create date column (one at a time)
     * here we're creating new columns in POSIXct format, based on the particular date format used in the source data (ujbc_a_1469081_sm5496.txt; see ?as.POSIXct):
 ```{r}
+test_df<- mydata # (original dataframe to be used for testing/illustration)
+
 x_brew_date.POSIXct<- as.POSIXct(mydata$brew_date, format = "%m/%d/%Y") # as a standalone vector (USELESS here), or:
 test_df$brew_date.POSIXct <-as.POSIXct(mydata$brew_date, format = "%m/%d/%Y")  # as a "new column" in our dataframe
 ```
@@ -187,18 +231,18 @@ for (icol in datecols) {
 ```
 
 
-## create dayofaddition, daysonhops, hops_g_100mL, pounds_bbl variables with dplyr "mutate"
+* create dayofaddition, daysonhops, hops_g_100mL, pounds_bbl variables with dplyr "mutate"
 ```{r}
 mydata<- mydata %>% 
-  mutate(dayofaddition = as.numeric(difftime(dryhop_date.POSIXct,brew_date.POSIXct)),
-         daysonhops = as.numeric(difftime(Test_Date.POSIXct,dryhop_date.POSIXct)),
+  mutate(dayofaddition = as.integer(as.numeric(difftime(dryhop_date.POSIXct,brew_date.POSIXct))),
+         daysonhops = as.integer(as.numeric(difftime(Test_Date.POSIXct,dryhop_date.POSIXct))/(60*60*24)),
          hops_g_100mL = (mg_hops/volume_mL)/10,
          pounds_bbl = (mg_hops/volume_mL)*117/454
          )
 ```
 
 
-* ADVANCED data wrangling: unpack overloaded columns with grepl
+* ADVANCED data wrangling: manually unpack overloaded columns with grepl
 ```{r}
 mydata$OX<-grepl("OX", mydata$Hop_type)       ##  create logical "OX" column
 mydata$rouse<-grepl("rouse", mydata$special_group)##  create logical column
@@ -256,48 +300,48 @@ dput(levels(as.factor(mydata$EXPTnew)))
 (experimental factors on the left, then measurements, followed by calculations and then all date columns on the right):
 ```{r}
 mydata <- mydata %>% 
-  dplyr::select(sample_id,expt, EXPTnew, hop, BINhop, variety, OX, harvestYear, form_of_hops, rouse, daysonhops, dayofaddition, DH_temp, temp.C, hops_g_100mL, pounds_bbl,
+  dplyr::select(sample_id,expt, EXPTnew, hop, BINhop, variety, OX, harvestYear, form_of_hops,special_conditions, rouse, daysonhops, dayofaddition, DH_temp, temp.C, hops_g_100mL, pounds_bbl,
          ABV, ABW, OE, Er, Ea, SG, RDF, ADF, Calories, 
          dhop_day, contact_days, REF_NH, ABV_increase, 
-         brew_date.POSIXct, sample_collection_date.POSIXct, dryhop_date.POSIXct,Test_Date.POSIXct)
+         brew_date.POSIXct, sample_collection_date.POSIXct, dryhop_date.POSIXct,Test_Date.POSIXct, initial_plato)
 ## remove ".POSIXct" suffix.  Leaving it as-is will only add to confusion if/when these data are saved and re-imported (and become 'character' format!)
 colnames(mydata) = gsub(".POSIXct", "", colnames(mydata))
 ```
 
 
 
-##compute mean NH (reference) values 
+##compute mean NH (control) values 
 (NH = not dry-hopped) 
 ```{r}
 ## mean NH (control) values for each EXPTnew group
-mean.REF_NH<- mydata %>% 
+mean.control_NH<- mydata %>% 
   group_by(EXPTnew) %>%
   filter(hop=="NH") %>%
   summarise_at(vars(ABV, ABW, Ea, SG),funs(mean, n()))
-## replace "_mean" with "_NHgroup" in column names
-colnames(mean.REF_NH) = gsub("_mean", ".NHgroup", colnames(mean.REF_NH))
+## replace "_mean" with ".control_NH" in column names
+colnames(mean.control_NH) = gsub("_mean", ".control_NH", colnames(mean.control_NH))
 ```
 
 
-##compute $\Delta$ values using objects created above...
-* difference of each ABV,ABW,Ea, and SG data point from corresponding mean.REF_NH values (unhopped samples in same EXPTnew group)
+##compute $\Delta$ values (changes relative to un-dryhopped controls) using objects created above...
+* difference of each ABV,ABW,Ea, and SG data point from corresponding mean.control_NH values (unhopped samples in same EXPTnew group)
 ```{r}
-## first join our data with mean ABV for unhopped samples in given experiment (mean.REF_NH; calculated above)
+## first join our data with mean ABV for unhopped samples in given experiment (mean.control_NH; calculated above)
 
-FPHcalc<- left_join(mydata, mean.REF_NH, by="EXPTnew")
+FPHcalc<- left_join(mydata, mean.control_NH, by="EXPTnew")
 
-## now calculate ABW_increase by subtracting each individual ABW measurement from mean.REF_NH:
-FPHcalc$delta.ABV <- FPHcalc$ABV - FPHcalc$ABV.NHgroup
-FPHcalc$delta.ABW <- FPHcalc$ABW - FPHcalc$ABW.NHgroup
-FPHcalc$delta.plato <- -(FPHcalc$Ea - FPHcalc$Ea.NHgroup)
-FPHcalc$delta.SG <- -(FPHcalc$SG - FPHcalc$SG.NHgroup)
+## calculate ABW_increase by subtracting each individual ABW measurement from respective mean.control_NH:
+FPHcalc$delta.ABV <- FPHcalc$ABV - FPHcalc$ABV.control_NH
+FPHcalc$delta.ABW <- FPHcalc$ABW - FPHcalc$ABW.control_NH
+FPHcalc$delta.plato <- FPHcalc$Ea - FPHcalc$Ea.control_NH
+FPHcalc$delta.SG <- FPHcalc$SG - FPHcalc$SG.control_NH
 
 ## the control samples have served their purpose, now remove them from dataset. The following calculations are only meaningful for dry-hopped samples.  
 FPHcalc<- FPHcalc %>% filter(hop=="DH")
 ```
 
 
-## *calcalate* corresponding CO2 production 
+## *calculate* corresponding CO2 production 
 * following Bamforth (describing Balling equation) "...more realistically, the ethanol yield is more like 0.46 g and carbon dioxide 0.44 g from 1 g sugar"  (p. 137 in Brewing Materials and Processes: A Practical Approach to Beer Excellence, Edited by Charles Bamforth Academic Press, 2016)
 ```{r}
 FPHcalc$calcCO2_increase <- FPHcalc$delta.ABW*(0.44/0.46)
@@ -309,11 +353,18 @@ FPHcalc$calcCO2vols_increase <- FPHcalc$calcCO2_increase*10/1.96
 
 
 
-## define "FPH" as amount produced per % dry-hops added (in g/100mL):
+## define "FPH" as amount produced per amount dry-hops added (all in g/100mL):
 ```{r}
+##  FPH = Fold Production due to Hops (fold-increase by mass: amount of given endpoint relative to amount of hops added)
+##  
 FPHcalc$FPH_EtOH = FPHcalc$delta.ABW/FPHcalc$hops_g_100mL
 FPHcalc$FPH_CO2 = FPHcalc$calcCO2_increase/FPHcalc$hops_g_100mL
 FPHcalc$FPH_plato = FPHcalc$delta.plato/FPHcalc$hops_g_100mL
+
+## replacing time-zero time values with a very small number (rather than exactly zero) will prevent issues with analysis of nonlinear models
+FPHcalc[FPHcalc$daysonhops==0,]$daysonhops <- 0.01
+
+
 
 ## and save the transformed data to csv:
 write.csv(FPHcalc,"FPHcalc.csv", row.names = FALSE)
@@ -354,7 +405,7 @@ grid.arrange(p1, p2, p3, p4, ncol = 2)
 ```{r regression.4plot.color}
 df <- FPHcalc
 x<- df$Ea
-y<- df$FPH_EtOH
+y<- df$ABW    #FPH_EtOH
 
 p1<- ggplot(df, aes(x,y, color=form_of_hops)) + geom_point(size=2)
 p2<- ggplot(df, aes(x,y, color=brew_date)) + geom_point(size=2)
@@ -363,9 +414,15 @@ p4<- ggplot(df, aes(x,y, color=pounds_bbl)) + geom_point(size=2)
 grid.arrange(p1, p2, p3, p4, ncol = 2)
 ```
 
+## 3D plots with library(plotly)
+```{r}
+# interactive 3D plots with library(plotly)
+plot_ly(data = df, z = df$PLATO.hopdrop, x = ~df$daysonhops, y =  df$ABW)
+```
+
 ## Amunategui "Using Correlations To Understand Your Data"
 ```{r Amunategui}
-mydata<-FPHcalc %>% dplyr::select(expt,variety,form_of_hops,pounds_bbl,rouse,daysonhops,DH_temp,brew_date,ABW,SG,OE,ADF,RDF,calcCO2vols_increase,FPH_CO2, FPH_EtOH)  ## last one is 100% in j
+mydata<-FPHcalc %>% dplyr::select(expt,variety,form_of_hops,pounds_bbl,special_conditions,rouse,daysonhops,DH_temp,brew_date,ABW,SG,OE,ADF,RDF,calcCO2vols_increase,FPH_CO2, FPH_EtOH)  ## last one is 100% in j
 
 ## note use of "dplyr::select" because one of these packages is conflicting with dplyr commands :()
 
@@ -418,8 +475,6 @@ $FPH =  intercept + \beta_{1}X_{1} + \beta_{2}X_{2} + ... + \beta_{n}X_{n}$ wher
 >> ActionItem:  add link to modeling overview
 
 
-
-
 ## linear models 1 (create models)
 ```{r}
 df<-FPHcalc
@@ -428,7 +483,7 @@ lm1<-lm(df$SG~df$OE)
 lm2<-lm(df$SG~df$ADF)
 lm3<-lm(df$SG~df$ABW)
 lm4<-lm(df$SG~df$Ea)
-par(mfrow = c(2, 2), oma = c(0, 0, 2, 0))
+par(mfrow = c(2, 2), oma = c(0, 0, 0, 0))
 plot(df$SG~df$OE)
 abline(lm1)
 plot(df$SG~df$ADF)
@@ -448,7 +503,7 @@ lm2<-lm(df$SG~df$ADF)
 lm3<-lm(df$SG~df$ABW)
 lm4<-lm(df$SG~df$Ea)
 
-par(mfrow = c(2, 2), oma = c(0, 0, 2, 0))
+par(mfrow = c(2, 2), oma = c(0, 0, 0, 0))
 plot(lm1$residuals)
 plot(lm2$residuals)
 plot(lm3$residuals)
@@ -478,6 +533,8 @@ mtable1234b <- relabel(mtable1234,
                       )
 mtable1234
 #show_html(mtable1234b)
+
+
 ```
 
 
@@ -506,7 +563,7 @@ mtable1234
 
 
 
-#The R Book (Crawley) Table 20.1: nonlinear functions useful in biology   
+## The R Book (Crawley) Table 20.1: nonlinear functions useful in biology   
 Table 20.1. [Useful non-linear functions](https://www.cs.upc.edu/~robert/teaching/estadistica/TheRBook.pdf "Michael J. Crawley.  The R book.  p. 738") EXPANDED:
 
 
@@ -531,11 +588,11 @@ Table 20.1. [Useful non-linear functions](https://www.cs.upc.edu/~robert/teachin
 
 
 
-## Michaelis-menton model (Crawley p. 741)
+## Michaelis-Menton model (Crawley p. 741)
 $y =\frac{ax}{1+bx}$
 
 ```{r}
-expt2 <- FPHcalc %>% dplyr::filter(expt==" 2A") %>% dplyr::select(FPH_EtOH, rouse, daysonhops,brew_date, pounds_bbl,form_of_hops,ABW.NHgroup,dayofaddition)
+expt2 <- FPHcalc %>% dplyr::filter(expt==" 2A") %>% dplyr::select(FPH_EtOH, rouse, daysonhops,brew_date, pounds_bbl,form_of_hops,ABW.control_NH,dayofaddition)
 
 mymodel <- nls(FPH_EtOH~a*daysonhops/(1+b*daysonhops), data=expt2,start=list(a=8, b=0.08))
 
@@ -543,8 +600,6 @@ summary(mymodel)
 
 ```
 
-Using this model, the relationship between hop-induced ethanol production (FPH_EtOH) and hop contact time (daysonhops) can be expressed as:
-$FPH_EtOH = frac{0.183572*daysonhops}{1+0.066388*daysonhops}$
 
 
 ```{r}
@@ -556,28 +611,281 @@ yv <- predict(mymodel, list(daysonhops=x))
 ```
 
 
+So using the Michaelis-Menten equation as our model, the relationship between hop-induced ethanol production (FPH_EtOH) and hop contact time (daysonhops) would be expressed as:
+$FPH_EtOH = \frac{0.183572*daysonhops}{1+0.066388*daysonhops}$
+
+
+
+## nonlinear models of hop-induced Plato drop over time with library(drc) 
+```{r drc.models}
+df <- FPHcalc %>% filter(expt==" 2A") 
+df$PLATO.hopdrop <- df$initial_plato + df$delta.plato
+
+x <- df$daysonhops
+y <- df$PLATO.hopdrop
+group<- as.factor(df$special_conditions)   #rouse
+cols <- as.numeric(group)
+legend.cols <- as.numeric(as.factor(levels(group)))
+
+## Fitting models using function drm from library(drc). see <http://rstats4ag.org/dose-response-curves.html> for overview and <https://www.rdocumentation.org/packages/drc/> for list of models (fct values) and other functions available in drc
+
+## create models
+m.LL.3<-drm(y ~x,group, fct = LL.3()) #3-parameter logistic (lower limit at 0)
+#m.LL.3u<-drm(y ~x, fct = LL.3u()) #3-parameter logistic (upper limit at 1)
+m.LL.4<-drm(y ~x,group, fct = LL.4()) #4-parameter log-logistic  
+# from ??LL.4:  f(x) = c + \frac{d-c}{1+\exp(b(\log(x)-\log(e)))} or in another parameterisation (converting the term \log(e) into a parameter) f(x) = c + \frac{d-c}{1+\exp(b(\log(x)-\tilde{e}))}  
+m.L.4 <-drm(y ~x,group, fct = L.4()) #changing the fct = LL.4() to fct = L.4() allows plotting on a log10 scale
+m.LL2.4<-drm(y ~x,group, fct = LL2.4()) #4-parameter log-logistic with log(e) rather than e as a parameter  
+m.LL2.5<-drm(y ~x,group, fct = LL2.5()) #Generalised log-logistic
+# from ??LL.2.5:   f(x) = c + \frac{d-c}{(1+\exp(b(\log(x)-e)))^f}
+m.LL.5<-drm(y ~x,group, fct = LL.5()) #5-parameter logistic  
+m.W1.4<-drm(y ~x,group, fct = W1.4()) #4-parameter Weibull1  
+m.W2.4<-drm(y ~x,group, fct = W2.4()) #4-parameter Weibull2  
+m.BC.5<-drm(y ~x,group, fct = BC.5()) #5-parameter Brain-Cousens (hormesis)
+m.AR.3<-drm(y ~x,group, fct = AR.3()) #3-parameter Shifted asymptotic regression
+#m.MM.2<-drm(y ~x,group, fct = MM.2()) #2-parameter Michaelis-Menten
+m.MM.3<-drm(y ~x,group, fct = MM.3()) #3-parameter Michaelis-Menten
+
+
+##plot
+#par(mfrow = c(1,2), oma = c(0, 0, 0, 0))
+
+{plot(x , y, col=cols, main="raw data")
+legend("topright", legend=levels(group), pch=16, col=legend.cols)}
+
+plot(m.LL.3, type='all',col=cols, main="LL.3 (lower limit at 0)")
+plot(m.LL.4, type='all',col=cols, main="LL.4 four-parameter log-logistic")
+plot(m.L.4, type='all',col=cols, main="L.4")
+plot(m.LL.5, type='all',col=cols, main="LL.5")
+plot(m.LL2.4, type='all',col=cols, main="LL2.4 four-parameter log-logistic")
+plot(m.LL2.5, type='all',col=cols, main="Generalised log-logistic")
+plot(m.W1.4, type='all',col=cols, main="Weibull1")
+plot(m.W2.4, type='all',col=cols, main="Weibull2")
+plot(m.BC.5, type='all',col=cols, main="Brain-Cousens (hormesis)")
+plot(m.AR.3, type='all',col=cols, main="Shifted asymptotic regression")
+#plot(m.MM.2, type='all',col=cols, main="2-parameter Michaelis-Menten")
+plot(m.MM.3, type='all',col=cols, main="3-parameter Michaelis-Menten")
+
+```
+
+
+
+##  Speers2003: Non‐Linear Modelling of Industrial Brewing Fermentations
+R. Alex Speers, Peter Rogers, Bruce Smith
+J. Inst. Brew. 109(3), 229–235, 2003 
+<https://doi.org/10.1002/j.2050-0416.2003.tb00163.x>
+Free Access from the Institute of Brewing!
+<https://onlinelibrary.wiley.com/doi/10.1002/j.2050-0416.2003.tb00163.x>
+
+Following Speers2003, the relationship between plato and time in primary fermentations is well modeled by a four parameter logistic model:
+
+PLATO = PINF + (P_D / (1+ (EXP(-B*(TIME-M)))))
+
+or
+
+$PLATO = P_{inf}+ \frac{P_D}{1+e^{-B(t-M)}}$
+
+where
+
+* t = time into fermentation
+* P_D =  change in Plato during fermentation (OE - P_{inf})
+* B ~ maximum fermentation rate
+* M = fermenation midpoint
+* P_inf = final gravity
+
+
+so then for our case
+
+$PLATO = P_{inf}+  \frac{OE-P_{inf}}{1+e^{-F_{max}(daysonhops-M)}}$
+
+PLATO = PINF + (P0 / (1+ (EXP(B*(HOURS-M)))))
+
+
+##  MacIntosh2016: An Examination of Substrate and Product Kinetics During Brewing Fermentations
+Andrew J. MacIntosh, Maria Josey, R. Alex Speers
+[J. Am. Soc. Brew. Chem. 74(4), 250-257, 2016](https://www.asbcnet.org/publications/journal/vol/2016/Pages/ASBCJ-2016-4753-01.aspx)
+
+"the five-parameter method was selected over the
+standard four-parameter logistic detailed in ASBC Method Yeast-
+14 because it yielded a superior fit when assessed with an extra
+sum-of-squares F test. We further note that it is only statistically
+advantageous to apply the five-parameter model when many data
+points are available (72 from this experiment as opposed to 10
+when using Yeast-14)."
+
+MacIntosh:  $P_{(t)} =\frac{P_i - P_e}{(1+s * e^{-B(t-M)})^{1/s}}$
+
+library(drc)
+getMeanFunctions()
+
+* drc LL.4:  $f(x) = c + \frac{d-c}{1+\exp(b(\log(x)-\tilde{e}))}$  #4param logistic
+* drc LL.5:  $f(x) = c + \frac{d-c}{(1+\exp(b(\log(x)-e)))^f}$      #5param logistic
+* drc G.4 $f(x) = c + (d-c)(\exp(-\exp(b(x-e))))$                   #4param Gompertz  
+* drc W1.4 $f(x) = c + (d-c) \exp(-\exp(b(\log(x)-\log(e))))$       #4param Weibull1
+* drc W2.4 $f(x) = c + (d-c) (1 - \exp(-\exp(b(\log(x)-\log(e)))))$ #4param Weibull2
+
+
+## multilevel logistic models with library(drc)
+```{r drc.models.levels}
+df <- FPHcalc %>% filter(expt==" 2A") 
+df$PLATO.hopdrop <- df$initial_plato + df$delta.plato
+x <- df$daysonhops
+y <- df$PLATO.hopdrop
+mylevels<- as.factor(df$special_conditions)  #rouse
+cols <- as.numeric(mylevels)
+legend.cols <- as.numeric(as.factor(levels(mylevels)))
+
+## create models
+#m.LL.4<-drm(y ~x,mylevels, fct = LL.4(names = c("Slope", "Lower", "Upper", "Midpoint or ED50"))) #4-parameter log-logistic (general parameters)
+#m.LL.4<-drm(y ~x,mylevels, fct = LL.4(names = c("Slope", "Lower", "Upper", "ED50"))) #4-parameter log-logistic (Dose-Response parameters)
+m.LL.4<-drm(y ~x,mylevels, fct = LL.4(names = c("F_max", "P_inf", "OE", "M"))) #4-parameter log-logistic  
+m.L.4 <-drm(y ~x,mylevels, fct = L.4()) #changing the fct = LL.4() to fct = L.4() allows plotting on a log10 scale
+m.LL2.4<-drm(y ~x,mylevels, fct = LL2.4()) #4-parameter log-logistic with log(e) rather than e as a parameter  
+m.LL2.5<-drm(y ~x,mylevels, fct = LL2.5()) #Generalised log-logistic
+m.LL.5<-drm(y ~x,mylevels, fct = LL.5()) #5-parameter logistic  
+
+mymodel <- m.LL.4
+
+confint(mymodel)
+
+{plot(mymodel,log="",  broken = TRUE, bcontrol = list(style = "slash"), col = c(2,6,3,23,56), main = "impact of mylevels on estimated model paramaters")
+legend(34, 3.7, legend=c("roused","still"), fill=c("red", "pink"), title="mylevels")}
+
+mymodel
+summary(mymodel)
+
+```
+
+Each level (rouse and still) has a unique curve shape and therefore different parameters for a best-fit log-logistic model.  Now that we know this, it is practical to address each set of conditions separately, and based on the LL.4 model above we have:
+
+for rouse = TRUE:
+
+$PLATO_{roused} = P_{inf}+  \frac{OE-P_{inf}}{1+e^{-F_{max}(daysonhops-M)}}$
+
+or
+
+$PLATO_{roused}  = 1.809 + \frac{1.94}{1+e^{-1.3925(daysonhops-12.272)}}$
+
+and
+
+$PLATO_{still}  = 2.149 + \frac{1.60}{1+e^{-1.8004(daysonhops-7.958)}}$
+
+Plotting and analysis options for multilevel models are limited, so let's move forward with a single set of conditions and a 'simple' single-level logistic model (expt=2a, rouse=TRUE).
+
+
+## unilevel logistic model with confidence intervals 
+```{r}
+df <- FPHcalc %>% filter(expt==" 2A" & rouse==TRUE) 
+df$PLATO.hopdrop <- df$initial_plato + df$delta.plato
+x <- as.numeric(df$daysonhops)
+y <- df$PLATO.hopdrop
+
+## create model
+mymodel<-drm(y ~x, fct = LL.4()) #4-parameter logistic with library(drc)
+
+plot(mymodel, main = "default")
+plot(mymodel, log="", main = "non-logarithmic x-axis")
+
+# create prediction intervals
+newdata = data.frame(y = y, x = x)
+conf95 <- as.data.frame(predict(mymodel, newdata,interval = "confidence", level = 0.95))
+conf95$x <- x
+pred95 <- as.data.frame(predict(mymodel, newdata, interval = "prediction", level = 0.95))
+pred95$x <- x
+pred999 <- as.data.frame(predict(mymodel, newdata, interval = "prediction", level = 0.999))
+pred999$x <- x
+
+# Asymmetric ribbons based on prediction intervals
+#newdata <- data.frame(y = c(3.5, 3, 2.9, 2.5,1.8,1.7), x = c(1,5,10,20,30,40))
+#newdata <- tidyfermi %>% filter(batch = SELECTBATCH) %>% select(days,plato) 
+qplot(data=pred95, x=x, y=Prediction, ymin=Lower, ymax=Prediction, geom="ribbon", fill=I("red"), alpha=I(0.2)) +
+geom_ribbon(data=pred95, aes(x=x, ymin=Prediction, ymax=Upper), fill=I("blue"), alpha=I(0.2)) +
+geom_line(data=pred95, aes(x=x, y=Prediction), color=I("green"), lwd=1)+
+geom_point(data=newdata, aes(x=x, y=y, ymin=NULL, ymax=NULL), size=1, col="blue")+
+ ylab("y")
+
+# Visualise intervals
+# based on Maurits Evers (https://stackoverflow.com/questions/49444489/nonlinear-regression-prediction-in-r?rq=1)
+data.frame(x=x, y=y) %>% ggplot(aes(x, y)) +
+geom_point() +
+geom_line(data = pred95, aes(x = x, y = Prediction)) +
+geom_ribbon(data = pred999, aes(x = x, ymin = Lower, ymax = Upper),fill=I("pink"),alpha = 0.4)+
+geom_ribbon(data = pred95, aes(x = x, ymin = Lower, ymax = Upper),fill=I("green"),alpha = 0.4)+
+geom_ribbon(data = conf95, aes(x = x, ymin = Lower, ymax = Upper),fill=I("purple"),alpha = 0.4);
+
+```
+
+Note:  If you compare the multi-level model parameter estimates for rouse=TRUE with those for unilevel model based on rouse=TRUE subset, the results are quite similar, but not identical!
+
+## plot residuals of nonlinear models generated in library(drc)
+```{r}
+par(mfrow = c(2, 2), oma = c(0, 0, 0, 0))
+
+plot(m.MM.3$predres)
+plot(m.LL.3$predres)
+plot(m.LL.4$predres)
+plot(m.LL.5$predres)
+```
+
+
+# summary
+
+For cases where 2016 Centennial hops are added to this particular base beer (sampled into 12oz bottles) near the end of primary fermentation at room temperature and bottles remain untouched (still), the 4-parameter logistic equation with the following sets of parameters is a reasonable model of the subsequent hop-induced plato drop:
+
+$PLATO_{still}  = 2.149 + \frac{1.60}{1+e^{-1.8004(daysonhops-7.958)}}$
+
+
+The following 4-parameter logistic equation is a reasonable model for cases identical to the above, but where bottles are roused once daily:
+
+$PLATO_{roused}  = 1.809 + \frac{1.94}{1+e^{-1.3925(daysonhops-12.272)}}$
+
+Whereas the residual sum of squares for the 5-parameter logistic models was similar to those obtained for the 4-parameter equation, a visual inspection reveals that the 4-parameter equation is probably superior, in that the 4-parameter fit apparently does not [falsely?] predict a long lag time in the case of unroused samples.
+
+Only a single variable (rousing vs. still) among several hundred variables encompassing raw materials, machines, people and process resulted in quite different estimated parameters for a 4-parameter logistic model.  These results highlight the fact that all process variables that significantly impact the endpoints we wish to control must themselves be defined, controlled and/or documented if models such as these are to be used to characterize the process in question.  
 
 
 # bigchunk_tidytransform
-```{r chunk_tidytransform, echo=FALSE}
-rm(list = ls()) # clear workspace
+```{r}
 mydata <-read.csv("ujbc_a_1469081_sm5496.txt",stringsAsFactors = FALSE)  ## SPECIFY filename
 
-## create new variables (*.POSIXct, dayofaddition, daysonhops, hops_g_100mL, pounds_bbl, variety, harvestyear,ox)
-### note: this is a base R data wrangling exercise! in general it's best to use lubridate package for date/timestamps! 
+## fill in MISSING DATA :(  add time zero data for time series analysis)
 
-## can do one at a time (here we're creating new columns in POSIXct format, based on the particular date format used in the source data (ujbc_a_1469081_sm5496.txt; see ?as.POSIXct):
-#x_brew_date.POSIXct<- as.POSIXct(mydata$brew_date, format = "%m/%d/%Y") # as a standalone vector (USELESS here), or:
-#mydata$brew_date.POSIXct <-as.POSIXct(mydata$brew_date, format = "%m/%d/%Y")  # as a "new column" in our dataframe
-  
-## or, we can take advantage of the pattern that of our (character) date/time columns have the string "date" in the headername.  First make character vector of all column names containing string "date":
-#datecols<- dput(names(select(mydata, matches("date"))))  ## headers containing string "date"
+## nested ifelse to add time zero plato values for each expt:
+mydata<- mydata %>% mutate(., initial_plato = ifelse(expt==" 2A", 3.74, ifelse(expt==" 1A", 3.69, ifelse(expt==" 1B", 3.53, ifelse(expt==" 3B", 3.54, ifelse(expt==" 4B", 4.66, NA))))))
+                                             
+## add complete time-zero anton paar data for time series (expt2A)
+## quadruple-up each triplicate time-zero measurement (one copy for each NH/DH & rouse/still combo)
+## note:  this practice is of questionable statistical rigor.  In retrospect it would have been better (and a lot easier) to just run 12 samples through Anton on day0!
+timezero <- mydata %>% filter(expt==" 2A") %>% arrange(special_group) %>% slice(1:12)
+#data.entry(timezero)
+timezero$Test_Date <- rep(c("7/27/2017","7/27/2017","7/27/2017"),4)
+timezero$Test.time <- rep(c("3:26 PM", "3:30 PM", "3:34 PM"),4)
+timezero$ABV <- 6.68
+timezero$ABW <- 5.2
+timezero$OE <- 15.95
+timezero$Er <- 6.08
+timezero$Ea <- rep(c(3.74, 3.73, 3.74),4)
+timezero$SG <- rep(c(1.01462, 1.01461, 1.01462),4)
+timezero$RDF <- rep(c(63.88, 63.89, 63.88),4)
+timezero$ADF <- rep(c(76.58, 76.60, 76.58),4)
+timezero$Calories <- rep(c(215.37,215.34,215.35),4)
+timezero[timezero$hop=="DH",]$contact_days <-0
+timezero[,c(28:31)] <- 0
+mydata <- rbind(timezero,mydata)
+write.csv(mydata, "quickie.csv", row.names = FALSE)
+mydata<-read.csv("quickie.csv", stringsAsFactors = FALSE)
 
-#dput(names(mydata))
+###  this is a routine for inspecting data ###
+mydatatypes<- as.data.frame(cbind(sapply(mydata, class)))  ## table of datatypes
+mydatatypes$headers <- rownames(mydatatypes)    ## convert rownames to values
+na_count <-as.data.frame(sapply(mydata, function(y) sum(length(which(is.na(y)))))) ## count NAs by column
+mydataOverview<-as.data.frame(cbind(na_count,mydatatypes))  ## table of NA counts and datatypes
+names(mydataOverview) <- c("NA_count","Data_Class", "Header")
+sum(is.na(mydata))  ## total count of NA values in entire sheet (231 in this case)
+mydataOverview %>% filter(NA_count>0)    ## breakdown of NA values
 
-datecols<- c("brew_date", "sample_collection_date", "dryhop_date", "Test_Date")
+datecols<- dput(names(dplyr::select(mydata, matches("date"))))  ## headers containing string "date" => c("brew_date", "sample_collection_date", "dryhop_date", "Test_Date")
 ## FORLOOP
-# this forloop will (attempt to) convert datecols (define above) into POSIXct format (R datetime format).  In general they say it's  ### best to avoid forloops ### use functions from lubridate/etc packages with specific tools for the task at hand)!! ###
 for (icol in datecols) {
   newcol = paste0(icol,".POSIXct")
  # print(newcol)
@@ -587,24 +895,26 @@ for (icol in datecols) {
 
 ## create dayofaddition, daysonhops, hops_g_100mL, pounds_bbl variables with dplyr "mutate"
 mydata<- mydata %>% 
-  mutate(dayofaddition = as.numeric(difftime(dryhop_date.POSIXct,brew_date.POSIXct)),
-         daysonhops = as.numeric(difftime(Test_Date.POSIXct,dryhop_date.POSIXct)),
+  mutate(dayofaddition = as.integer(as.numeric(difftime(dryhop_date.POSIXct,brew_date.POSIXct))),
+         daysonhops = as.integer(as.numeric(difftime(Test_Date.POSIXct,dryhop_date.POSIXct))/(60*60*24)),
          hops_g_100mL = (mg_hops/volume_mL)/10,
          pounds_bbl = (mg_hops/volume_mL)*117/454
          )
-
-mydata$OX<-grepl("OX", mydata$Hop_type)           ##  create logical "OX" column
-mydata$rouse<-grepl("rouse", mydata$special_group)##  create logical "rouse" column
+         
+mydata$OX<-grepl("OX", mydata$Hop_type)       ##  create logical "OX" column
+mydata$rouse<-grepl("rouse", mydata$special_group)##  create logical column
 mydata$Grind<-grepl("Grind", mydata$Hop_type)     ##  create logical column
 mydata$Cone<-grepl("Cone", mydata$Hop_type)       ##  create logical column
 mydata$harvest2014<-grepl("14", mydata$Hop_type)  ##  create logical column
 mydata$harvest2015<-grepl("15", mydata$Hop_type)  ##  create logical column
 mydata$harvest2017<-grepl("17", mydata$Hop_type)  ##  create logical column
+
 ## ifelse statement for harvestyear (if neither 2014 nor 2015 nor 2017, then 2016)
 mydata$harvestYear <- ifelse(
   mydata$harvest2014==TRUE, 2014,
   ifelse(mydata$harvest2015==TRUE, 2015, 
          ifelse(mydata$harvest2017==TRUE, 2017, 2016)))
+
 ## ifelse statement for form of hops (if neither cone nor ground nor NH, then pellet) 
 mydata$form_of_hops <- ifelse(
   mydata$Cone==TRUE, "cone",
@@ -616,65 +926,62 @@ mydata$DH_temp <- ifelse(
   mydata$temp.C<10, "cold",
   ifelse(mydata$temp.C>10, "warm", "something else"))
 
-## create "variety" column starting with "Hop_type" then stripping away all the non-variety information
 mydata$variety<-mydata$Hop_type
-mydata$variety<- gsub("17","", mydata$variety)
-mydata$variety<- gsub("16","", mydata$variety)
-mydata$variety<- gsub("15","", mydata$variety)
-mydata$variety<- gsub("14","", mydata$variety)
-mydata$variety<- gsub("OX","", mydata$variety)
+mydata$variety<- gsub("[0-9]+","", mydata$variety) ## remove all numbers
+mydata$variety<- gsub("OX","", mydata$variety)     ## remove specific text
 mydata$variety<- gsub("Grind","", mydata$variety)
 mydata$variety<- gsub("Cone","", mydata$variety)
-mydata$variety<- gsub(" ","", mydata$variety)
+mydata$variety<- gsub(" ","", mydata$variety)      ## remove spaces
 
-## create "EXPTnew" (each unique experimental group designated in a single column)
 mydata<- mydata %>% mutate(EXPTnew=paste0("group",expt, substr(special_group, 1,2),as.character(rouse)))
 # clean it up by removing "NA" and any spaces due to canarycode bug
 mydata$EXPTnew <- gsub(" ","", mydata$EXPTnew)  ## remove any spaces
 mydata$EXPTnew <- gsub("NA","", mydata$EXPTnew) ## remove "NA"
 
-## rearrange columns (experimental factors on the left, then measurements, followed by calculations and finally all the date columns on the right):
+## select and rearrange columns 
 mydata <- mydata %>% 
-  dplyr::select(sample_id,expt, EXPTnew, hop, BINhop, variety, OX, harvestYear, form_of_hops, rouse, daysonhops, dayofaddition, DH_temp, temp.C, hops_g_100mL, pounds_bbl,
+  dplyr::select(sample_id,expt, EXPTnew, hop, BINhop, variety, OX, harvestYear, form_of_hops,special_conditions, rouse, daysonhops, dayofaddition, DH_temp, temp.C, hops_g_100mL, pounds_bbl,
          ABV, ABW, OE, Er, Ea, SG, RDF, ADF, Calories, 
          dhop_day, contact_days, REF_NH, ABV_increase, 
-         brew_date.POSIXct, sample_collection_date.POSIXct, dryhop_date.POSIXct,Test_Date.POSIXct)
+         brew_date.POSIXct, sample_collection_date.POSIXct, dryhop_date.POSIXct,Test_Date.POSIXct, initial_plato)
 ## remove ".POSIXct" suffix.  Leaving it as-is will only add to confusion if/when these data are saved and re-imported (and become 'character' format!)
 colnames(mydata) = gsub(".POSIXct", "", colnames(mydata))
-
-
+##compute mean NH (control) values 
 ## mean NH (control) values for each EXPTnew group
-mean.REF_NH<- mydata %>% 
+mean.control_NH<- mydata %>% 
   group_by(EXPTnew) %>%
   filter(hop=="NH") %>%
   summarise_at(vars(ABV, ABW, Ea, SG),funs(mean, n()))
-## replace "_mean" with "_NHgroup" in column names
-colnames(mean.REF_NH) = gsub("_mean", ".NHgroup", colnames(mean.REF_NH))
+## replace "_mean" with ".control_NH" in column names
+colnames(mean.control_NH) = gsub("_mean", ".control_NH", colnames(mean.control_NH))
+##compute $\Delta$ values (changes relative to un-dryhopped controls) using objects created above...
+## first join our data with mean ABV for unhopped samples in given experiment (mean.control_NH; calculated above)
 
+FPHcalc<- left_join(mydata, mean.control_NH, by="EXPTnew")
 
-
-FPHcalc<- left_join(mydata, mean.REF_NH, by="EXPTnew")
-
-## now calculate ABW_increase by subtracting each individual ABW measurement from mean.REF_NH:
-FPHcalc$delta.ABV <- FPHcalc$ABV - FPHcalc$ABV.NHgroup
-FPHcalc$delta.ABW <- FPHcalc$ABW - FPHcalc$ABW.NHgroup
-FPHcalc$delta.plato <- -(FPHcalc$Ea - FPHcalc$Ea.NHgroup)
-FPHcalc$delta.SG <- -(FPHcalc$SG - FPHcalc$SG.NHgroup)
+## calculate ABW_increase by subtracting each individual ABW measurement from respective mean.control_NH:
+FPHcalc$delta.ABV <- FPHcalc$ABV - FPHcalc$ABV.control_NH
+FPHcalc$delta.ABW <- FPHcalc$ABW - FPHcalc$ABW.control_NH
+FPHcalc$delta.plato <- FPHcalc$Ea - FPHcalc$Ea.control_NH
+FPHcalc$delta.SG <- FPHcalc$SG - FPHcalc$SG.control_NH
 
 ## the control samples have served their purpose, now remove them from dataset. The following calculations are only meaningful for dry-hopped samples.  
 FPHcalc<- FPHcalc %>% filter(hop=="DH")
-
-
+## *calcalate* corresponding CO2 production 
 FPHcalc$calcCO2_increase <- FPHcalc$delta.ABW*(0.44/0.46)
 ##convert calcCO2_increase (in g/100mL) to calculated CO2 volumes added
 ## g/L = 10* g/100mL
 ## The conversion factor from volumes of CO2 to CO2 by weight (g/L) is 1.96. For example: 2.5 volumes x 1.96 = 4.9 g/l.
 FPHcalc$calcCO2vols_increase <- FPHcalc$calcCO2_increase*10/1.96
-
-
+## define "FPH" as amount produced per % dry-hops added (in g/100mL):
+##  FPH = Fold Production due to Hops (fold-increase by mass: amount of given endpoint relative to amount of hops added)
+##  
 FPHcalc$FPH_EtOH = FPHcalc$delta.ABW/FPHcalc$hops_g_100mL
 FPHcalc$FPH_CO2 = FPHcalc$calcCO2_increase/FPHcalc$hops_g_100mL
 FPHcalc$FPH_plato = FPHcalc$delta.plato/FPHcalc$hops_g_100mL
+
+## replacing time-zero time values with a very small number (rather than exactly zero) will prevent issues with analysis of nonlinear models
+FPHcalc[FPHcalc$daysonhops==0,]$daysonhops <- 0.01
 
 ## and save the transformed data to csv:
 write.csv(FPHcalc,"FPHcalc.csv", row.names = FALSE)
@@ -685,7 +992,6 @@ df<- FPHcalc %>% group_by(EXPTnew) %>%
   arrange(desc(FPH_EtOH)) 
 df
 ```
-
 
 
 ```{r}
