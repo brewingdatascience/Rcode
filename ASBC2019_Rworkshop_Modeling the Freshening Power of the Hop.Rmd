@@ -28,10 +28,10 @@ output: html_notebook
         - $\Delta$ABV 
         - $\Delta$ABW
         - $\Delta{calculated}$CO$_2$
-        - $\Delta$ &deg;plato
         - $\Delta$SG$^{20/20}$
         - fold-increase ethanol from hop addition (in $\frac{pounds}{bbl}$ and wt% or $\frac{grams}{100 mL}$)
         - fold-increase CO$_2$ from hop addition (in g/L and CO$_2$ volumes)
+        - $\Delta$ &deg;plato
 * Load Libraries
 * Data Import, Tidy and Transform
 * Data Visualization
@@ -44,7 +44,7 @@ output: html_notebook
 
 
 # intro
-
+* this is not a stats course.  use at your own risk.
 * [*"Data is not information. Information is not knowledge. And knowledge
 is certainly not wisdom."*](http://www.datagovernance.com/quotes/knowledge-quotes/ "Clifford Stoll")
 * [Wickham's four pillars of data analysis:](https://r4ds.had.co.nz/ "Grolemund and Wickham's R for Data Science")
@@ -52,8 +52,9 @@ is certainly not wisdom."*](http://www.datagovernance.com/quotes/knowledge-quote
     * transform
     * visualize
     * model
+    
+This is primarily an excercise in data wrangling (tidy+transform) and markdown formatting using R Studio.  In that context, this analysis is a *preliminary* exploration of potential metrics for *Hop Freshening Power* (synonyms: 'dryhop creep', 'ABV creep', 'dry-hop creep') and to model this aspect of the warm-dryhopping process. 
 
-ascii font/art from <http://www.network-science.de/ascii/>
 ```{r echo=TRUE}
 #                       __  .__    .___      
 #                     _/  |_|__| __| _/__.__.
@@ -75,14 +76,15 @@ ascii font/art from <http://www.network-science.de/ascii/>
 #                     //                            \\
 #          _         //   _ _                        \\   _     _ 
 #     __ _(_)____  _ __ _| (_)______        _ __  ___  __| |___| |
-#     \ V / (_-< || / _` | | |_ / -_)======| '  \/ _ \/ _` / -_) |
-#      \_/|_/__/\_,_\__,_|_|_/__\___|      |_|_|_\___/\__,_\___|_|
+#     \ V / (_-< || / _` | | |_ / -_)------| '  \/ _ \/ _` / -_) |
+#      \_/|_/__/\_,_\__,_|_|_/__\___|------|_|_|_\___/\__,_\___|_|
+#
+#ascii font/art from <http://www.network-science.de/ascii/>
 ```
 
-This is primarily an excercise in data wrangling (tidy+transform) and markdown formatting using R Studio.  In that context, this analysis is a *preliminary* exploration of potential metrics for *Hop Freshening Power* (synonyms: 'dryhop creep', 'ABV creep', 'dry-hop creep') and to model this aspect of the warm-dryhopping process. 
 
 ## Statement of Problem
-The warm-dryhopping process can profoundly impact the body, alcohol and vicinal diketone content of the beer.  A common metric for this phenomenon has not been established.
+The warm-dryhopping process can profoundly impact the body, alcohol and vicinal diketone content of the beer.  Common metrics and models for this phenomenon have not been established.
 
 ## Overview of Experimental Data
 Through experience in brewing we know that **endpoints** of dryhopping include:
@@ -92,7 +94,7 @@ Through experience in brewing we know that **endpoints** of dryhopping include:
 * *ethanol increase* accompanied by decrease in specific gravity (sometimes)
 * CO2 increase (sometimes)
 * diacetyl/VDK increase (sometimes)
-* and so on...
+* impact on yeast quality, and so on...
 
 Experiments were carried out where 
 
@@ -106,16 +108,16 @@ Focusing on *ethanol increase as the endpoint*, we know these to be **relevant f
 
 * variety of hops (five different varieties)
 * presence of live yeast (true in all cases for these data)
-* temp.C = temperature during dryhopping (mostly warm, with a few in the cold)
+* temperature during dryhopping (mostly warm, with a few in the cold)
 * amount of contact time between hops and beer (up to 7 weeks)
 
 *For more details on this dataset see the [manuscript](https://www.tandfonline.com/doi/full/10.1080/03610470.2018.1469081?scroll=top&needAccess=true "Kirkendall2018").  
-* please send complaints and corrections to luke.chadwick@gmail.com!
+* please send comments, complaints and corrections to luke.chadwick@gmail.com!
 * Data are from the file "ujbc_a_1469081_sm5496.txt" (supplementary data from Jacob A. Kirkendall, Carter A. Mitchell & Lucas R. Chadwick (2018): The Freshening Power of Centennial Hops, *Journal of the American Society of Brewing Chemists* Volume 76, Issue 3, Pages 178-184 (**2018**) DOI: 10.1080/03610470.2018.1469081* available from <https://www.tandfonline.com/doi/full/10.1080/03610470.2018.1469081?scroll=top&needAccess=true>
 
 
 # load libraries
-```{r package.load, results='asis', echo=FALSE, include=FALSE} 
+```{r package.load, results='hide', echo=TRUE} 
 #.rs.restartR()  # restart R 
 sessionInfo()
 
@@ -123,11 +125,7 @@ sessionInfo()
 #install.packages("dplyr")  # dplyr "data plyer"  
 library(dplyr)
 library(ggplot2)
-library(gridExtra)  # for grid.arrange in R markdown
-
-
 library(tidyverse)
-
 
 library(caret) # for dummyVars function
 library(psych) # for pairs.panels function
@@ -135,7 +133,7 @@ library(memisc)  # compare models
 
 library(drc)  # "drc" = dose response curves (contains a suite of flexible and versatile model fitting and after-fitting functions)
 library(plotly)
-
+library(gridExtra)  # for grid.arrange in R markdown
 ```
 
 
@@ -148,16 +146,12 @@ library(plotly)
 rm(list = ls()) # clear workspace
 mydata <-read.csv("ujbc_a_1469081_sm5496.txt",stringsAsFactors = FALSE)  ## SPECIFY filename
 
-mydata %>% filter(expt ==" 2A") %>% dplyr::select(sample_id)
-
-#dput(names(mydata))
-
+dput(names(mydata))
 ```
 
 
-
-# manual add time zero to "days on hops" experiment!
-Anton Paar data at time zero for kinetics experiment (triplicate samples run immediately after sample collection, while the remainder were being dry-hopped):
+# !manual add time zero to "days on hops" experiment!
+Anton Paar data were collected at time zero for kinetics experiment (triplicate samples run immediately after sample collection, while the remainder were being dry-hopped), but were inadvertently excluded from the original dataset.  Here they are:
 Date	time	sample no.	ABV	ABW	OE (P)	Er	Ea	SG 20/20	RDF	ADF sample_id
 07/27/17	3:26 PM	03_	6.68	5.2	15.95	6.08	3.74	1.01462	63.88	76.58	JK1-20-41
 07/27/17	3:30 PM	04_	6.68	5.2	15.95	6.08	3.73	1.01461	63.89	76.6	JK1-20-50
@@ -197,8 +191,8 @@ mydatatypes$headers <- rownames(mydatatypes)    ## convert rownames to values
 na_count <-as.data.frame(sapply(mydata, function(y) sum(length(which(is.na(y)))))) ## count NAs by column
 mydataOverview<-as.data.frame(cbind(na_count,mydatatypes))  ## table of NA counts and datatypes
 names(mydataOverview) <- c("NA_count","Data_Class", "Header")
-sum(is.na(mydata))  ## total count of NA values in entire sheet (231 in this case)
-mydataOverview %>% filter(NA_count>0)    ## breakdown of NA values
+#sum(is.na(mydata))  ## total count of NA values in entire sheet (231 in this case)
+#mydataOverview %>% filter(NA_count>0)    ## breakdown of NA values
 ```
 
 
@@ -206,8 +200,7 @@ mydataOverview %>% filter(NA_count>0)    ## breakdown of NA values
 
 > note: this is a base R +dplyr data wrangling exercise! in general it's best to use lubridate package for date/timestamps! 
 
-* create date column (one at a time)
-    * here we're creating new columns in POSIXct format, based on the particular date format used in the source data (ujbc_a_1469081_sm5496.txt; see ?as.POSIXct):
+* create a date column.  Here we create new date columns in POSIXct format, based on the particular date format used in the source data (ujbc_a_1469081_sm5496.txt; see ?as.POSIXct).  First an example of how NOT to create new variables in our dataframe:
 ```{r}
 test_df<- mydata # (original dataframe to be used for testing/illustration)
 
@@ -304,7 +297,7 @@ mydata <- mydata %>%
          ABV, ABW, OE, Er, Ea, SG, RDF, ADF, Calories, 
          dhop_day, contact_days, REF_NH, ABV_increase, 
          brew_date.POSIXct, sample_collection_date.POSIXct, dryhop_date.POSIXct,Test_Date.POSIXct, initial_plato)
-## remove ".POSIXct" suffix.  Leaving it as-is will only add to confusion if/when these data are saved and re-imported (and become 'character' format!)
+## remove ".POSIXct" suffix.  Leaving it as-is will only add to confusion if/when these data are saved and re-imported (and become 'character' format again!)
 colnames(mydata) = gsub(".POSIXct", "", colnames(mydata))
 ```
 
@@ -323,7 +316,7 @@ colnames(mean.control_NH) = gsub("_mean", ".control_NH", colnames(mean.control_N
 ```
 
 
-##compute $\Delta$ values (changes relative to un-dryhopped controls) using objects created above...
+##compute $\Delta$ values (differences relative to NH controls) using objects created above...
 * difference of each ABV,ABW,Ea, and SG data point from corresponding mean.control_NH values (unhopped samples in same EXPTnew group)
 ```{r}
 ## first join our data with mean ABV for unhopped samples in given experiment (mean.control_NH; calculated above)
@@ -414,10 +407,14 @@ p4<- ggplot(df, aes(x,y, color=pounds_bbl)) + geom_point(size=2)
 grid.arrange(p1, p2, p3, p4, ncol = 2)
 ```
 
-## 3D plots with library(plotly)
+## 3D plots for html with library(plotly)
+see https://plotly-r.com/the-plotly-cookbook.html for overview and some visualization inspiration. 
 ```{r}
 # interactive 3D plots with library(plotly)
-plot_ly(data = df, z = df$PLATO.hopdrop, x = ~df$daysonhops, y =  df$ABW)
+df <- FPHcalc # %>% filter(expt==" 2A")
+
+# makes html very slow to render...comment out
+#plot_ly(df, x = ~daysonhops, y = ~ABW, z = ~Ea) %>% add_markers(color = ~expt)
 ```
 
 ## Amunategui "Using Correlations To Understand Your Data"
@@ -540,8 +537,7 @@ mtable1234
 
 
 
-
-## compare more linear models
+## linear models of FPH
 ```{r}
 df <- FPHcalc
 lm1<-lm(FPH_EtOH~daysonhops, data=df)
@@ -567,7 +563,6 @@ mtable1234
 Table 20.1. [Useful non-linear functions](https://www.cs.upc.edu/~robert/teaching/estadistica/TheRBook.pdf "Michael J. Crawley.  The R book.  p. 738") EXPANDED:
 
 
-
 | Function Class | name | equation | example code |example applications|
 |:----------|:-----:|:-------|:-----|:-----|
 | **Asymptotic functions**|Michaelis–Menten|$y =\frac{ax}{1+bx}$|nls(bone~a*age/(1+b*age),start=list(a=8,b=0.08))) | enzyme reactions |
@@ -588,83 +583,32 @@ Table 20.1. [Useful non-linear functions](https://www.cs.upc.edu/~robert/teachin
 
 
 
-## Michaelis-Menton model (Crawley p. 741)
+## base R nls function for Michaelis-Menton model
 $y =\frac{ax}{1+bx}$
 
 ```{r}
-expt2 <- FPHcalc %>% dplyr::filter(expt==" 2A") %>% dplyr::select(FPH_EtOH, rouse, daysonhops,brew_date, pounds_bbl,form_of_hops,ABW.control_NH,dayofaddition)
 
-mymodel <- nls(FPH_EtOH~a*daysonhops/(1+b*daysonhops), data=expt2,start=list(a=8, b=0.08))
+expt2 <- FPHcalc %>% dplyr::filter(expt==" 2A") %>% dplyr::select(FPH_EtOH, rouse,special_conditions, daysonhops,brew_date, pounds_bbl,form_of_hops,ABW.control_NH,dayofaddition)
 
-summary(mymodel)
+myfactor<- as.factor(expt2$special_conditions)  #rouse
+cols <- as.numeric(myfactor)
+legend.cols <- as.numeric(as.factor(levels(myfactor)))
 
-```
+my.MM.model <- nls(FPH_EtOH~a*daysonhops/(1+b*daysonhops),myfactor, data=expt2,start=list(a=8, b=0.08))
 
-
-
-```{r}
-x <- seq(0,50,0.1)
-yv <- predict(mymodel, list(daysonhops=x))
-{plot(expt2$daysonhops, expt2$FPH_EtOH, pch=21, col="purple", bg="green")
-  lines(x,yv,col="blue")}
+summary(my.MM.model)
 
 ```
-
-
 So using the Michaelis-Menten equation as our model, the relationship between hop-induced ethanol production (FPH_EtOH) and hop contact time (daysonhops) would be expressed as:
 $FPH_EtOH = \frac{0.183572*daysonhops}{1+0.066388*daysonhops}$
+with a Residual standard error of 0.09307. As detailed below, logistic models do a better job than this, and using library(drc) makes it easier to introduce a multilevel factor.  
 
-
-
-## nonlinear models of hop-induced Plato drop over time with library(drc) 
-```{r drc.models}
-df <- FPHcalc %>% filter(expt==" 2A") 
-df$PLATO.hopdrop <- df$initial_plato + df$delta.plato
-
-x <- df$daysonhops
-y <- df$PLATO.hopdrop
-group<- as.factor(df$special_conditions)   #rouse
-cols <- as.numeric(group)
-legend.cols <- as.numeric(as.factor(levels(group)))
-
-## Fitting models using function drm from library(drc). see <http://rstats4ag.org/dose-response-curves.html> for overview and <https://www.rdocumentation.org/packages/drc/> for list of models (fct values) and other functions available in drc
-
-## create models
-m.LL.3<-drm(y ~x,group, fct = LL.3()) #3-parameter logistic (lower limit at 0)
-#m.LL.3u<-drm(y ~x, fct = LL.3u()) #3-parameter logistic (upper limit at 1)
-m.LL.4<-drm(y ~x,group, fct = LL.4()) #4-parameter log-logistic  
-# from ??LL.4:  f(x) = c + \frac{d-c}{1+\exp(b(\log(x)-\log(e)))} or in another parameterisation (converting the term \log(e) into a parameter) f(x) = c + \frac{d-c}{1+\exp(b(\log(x)-\tilde{e}))}  
-m.L.4 <-drm(y ~x,group, fct = L.4()) #changing the fct = LL.4() to fct = L.4() allows plotting on a log10 scale
-m.LL2.4<-drm(y ~x,group, fct = LL2.4()) #4-parameter log-logistic with log(e) rather than e as a parameter  
-m.LL2.5<-drm(y ~x,group, fct = LL2.5()) #Generalised log-logistic
-# from ??LL.2.5:   f(x) = c + \frac{d-c}{(1+\exp(b(\log(x)-e)))^f}
-m.LL.5<-drm(y ~x,group, fct = LL.5()) #5-parameter logistic  
-m.W1.4<-drm(y ~x,group, fct = W1.4()) #4-parameter Weibull1  
-m.W2.4<-drm(y ~x,group, fct = W2.4()) #4-parameter Weibull2  
-m.BC.5<-drm(y ~x,group, fct = BC.5()) #5-parameter Brain-Cousens (hormesis)
-m.AR.3<-drm(y ~x,group, fct = AR.3()) #3-parameter Shifted asymptotic regression
-#m.MM.2<-drm(y ~x,group, fct = MM.2()) #2-parameter Michaelis-Menten
-m.MM.3<-drm(y ~x,group, fct = MM.3()) #3-parameter Michaelis-Menten
-
-
-##plot
-#par(mfrow = c(1,2), oma = c(0, 0, 0, 0))
-
-{plot(x , y, col=cols, main="raw data")
-legend("topright", legend=levels(group), pch=16, col=legend.cols)}
-
-plot(m.LL.3, type='all',col=cols, main="LL.3 (lower limit at 0)")
-plot(m.LL.4, type='all',col=cols, main="LL.4 four-parameter log-logistic")
-plot(m.L.4, type='all',col=cols, main="L.4")
-plot(m.LL.5, type='all',col=cols, main="LL.5")
-plot(m.LL2.4, type='all',col=cols, main="LL2.4 four-parameter log-logistic")
-plot(m.LL2.5, type='all',col=cols, main="Generalised log-logistic")
-plot(m.W1.4, type='all',col=cols, main="Weibull1")
-plot(m.W2.4, type='all',col=cols, main="Weibull2")
-plot(m.BC.5, type='all',col=cols, main="Brain-Cousens (hormesis)")
-plot(m.AR.3, type='all',col=cols, main="Shifted asymptotic regression")
-#plot(m.MM.2, type='all',col=cols, main="2-parameter Michaelis-Menten")
-plot(m.MM.3, type='all',col=cols, main="3-parameter Michaelis-Menten")
+## predict and plot model
+```{r}
+x <- seq(0,50,0.1)
+yv <- predict(my.MM.model, list(daysonhops=x))
+{plot(expt2$daysonhops, expt2$FPH_EtOH, pch=21, col="purple", bg="green", main = "Michaelis-Menten model of ethanol production induced by dry-hopping")
+  lines(x,yv,col="blue")}
 
 ```
 
@@ -705,15 +649,10 @@ PLATO = PINF + (P0 / (1+ (EXP(B*(HOURS-M)))))
 Andrew J. MacIntosh, Maria Josey, R. Alex Speers
 [J. Am. Soc. Brew. Chem. 74(4), 250-257, 2016](https://www.asbcnet.org/publications/journal/vol/2016/Pages/ASBCJ-2016-4753-01.aspx)
 
-"the five-parameter method was selected over the
-standard four-parameter logistic detailed in ASBC Method Yeast-
-14 because it yielded a superior fit when assessed with an extra
-sum-of-squares F test. We further note that it is only statistically
-advantageous to apply the five-parameter model when many data
-points are available (72 from this experiment as opposed to 10
-when using Yeast-14)."
+"is only statistically advantageous to apply the five-parameter model when many data
+points are available... (72 from this experiment as opposed to 10 when using Yeast-14)."
 
-MacIntosh:  $P_{(t)} =\frac{P_i - P_e}{(1+s * e^{-B(t-M)})^{1/s}}$
+MacIntosh five-parameter logistic:  $P_{(t)} =\frac{P_i - P_e}{(1+s * e^{-B(t-M)})^{1/s}}$
 
 library(drc)
 getMeanFunctions()
@@ -725,56 +664,134 @@ getMeanFunctions()
 * drc W2.4 $f(x) = c + (d-c) (1 - \exp(-\exp(b(\log(x)-\log(e)))))$ #4param Weibull2
 
 
+## explore nonlinear models of hop-induced Plato drop over time with library(drc) 
+```{r drc.models}
+df <- FPHcalc %>% filter(expt==" 2A") 
+df$PLATO.hopdrop <- df$initial_plato + df$delta.plato
+
+x <- df$daysonhops
+y <- df$PLATO.hopdrop
+group<- as.factor(df$special_conditions)   #rouse
+cols <- as.numeric(group)
+legend.cols <- as.numeric(as.factor(levels(group)))
+
+## Fitting models using function drm from library(drc). see <http://rstats4ag.org/dose-response-curves.html> for overview and <https://www.rdocumentation.org/packages/drc/> for list of models (fct values) and other functions available in drc
+
+## create models
+#m.LL.3<-drm(y ~x,group, fct = LL.3()) #3-parameter logistic (lower limit at 0)
+#m.LL.3u<-drm(y ~x, fct = LL.3u()) #3-parameter logistic (upper limit at 1)
+m.LL.4<-drm(y ~x,group, fct = LL.4()) #4-parameter log-logistic  
+# from ??LL.4:  f(x) = c + \frac{d-c}{1+\exp(b(\log(x)-\log(e)))} or in another parameterisation (converting the term \log(e) into a parameter) f(x) = c + \frac{d-c}{1+\exp(b(\log(x)-\tilde{e}))}  
+m.L.4 <-drm(y ~x,group, fct = L.4()) #changing the fct = LL.4() to fct = L.4() allows plotting on a log10 scale
+m.LL2.4<-drm(y ~x,group, fct = LL2.4()) #4-parameter log-logistic with log(e) rather than e as a parameter  
+m.LL2.5<-drm(y ~x,group, fct = LL2.5()) #Generalised log-logistic
+# from ??LL.2.5:   f(x) = c + \frac{d-c}{(1+\exp(b(\log(x)-e)))^f}
+m.LL.5<-drm(y ~x,group, fct = LL.5()) #5-parameter logistic  
+m.W1.4<-drm(y ~x,group, fct = W1.4()) #4-parameter Weibull1  
+m.W2.4<-drm(y ~x,group, fct = W2.4()) #4-parameter Weibull2  
+m.BC.5<-drm(y ~x,group, fct = BC.5()) #5-parameter Brain-Cousens (hormesis)
+m.AR.3<-drm(y ~x,group, fct = AR.3()) #3-parameter Shifted asymptotic regression
+#m.MM.2<-drm(y ~x,group, fct = MM.2()) #2-parameter Michaelis-Menten
+m.MM.3<-drm(y ~x,group, fct = MM.3()) #3-parameter Michaelis-Menten
+
+
+##plot
+#par(mfrow = c(1,2), oma = c(0, 0, 0, 0))
+
+{plot(x , y, col=cols, main="raw data")
+legend("topright", legend=levels(group), pch=16, col=legend.cols)}
+
+#plot(m.LL.3, type='all',col=cols, main="LL.3 (lower limit at 0)")
+plot(m.LL.4, type='all',col=cols, main="LL.4 four-parameter log-logistic")
+plot(m.L.4, type='all',col=cols, main="L.4")
+plot(m.LL.5, type='all',col=cols, main="LL.5")
+plot(m.LL2.4, type='all',col=cols, main="LL2.4 four-parameter log-logistic")
+plot(m.LL2.5, type='all',col=cols, main="Generalised log-logistic")
+plot(m.W1.4, type='all',col=cols, main="Weibull1")
+plot(m.W2.4, type='all',col=cols, main="Weibull2")
+plot(m.BC.5, type='all',col=cols, main="Brain-Cousens (hormesis)")
+plot(m.AR.3, type='all',col=cols, main="Shifted asymptotic regression")
+#plot(m.MM.2, type='all',col=cols, main="2-parameter Michaelis-Menten")
+plot(m.MM.3, type='all',col=cols, main="3-parameter Michaelis-Menten")
+
+```
+
 ## multilevel logistic models with library(drc)
 ```{r drc.models.levels}
 df <- FPHcalc %>% filter(expt==" 2A") 
 df$PLATO.hopdrop <- df$initial_plato + df$delta.plato
 x <- df$daysonhops
 y <- df$PLATO.hopdrop
-mylevels<- as.factor(df$special_conditions)  #rouse
-cols <- as.numeric(mylevels)
-legend.cols <- as.numeric(as.factor(levels(mylevels)))
+myfactor<- as.factor(df$special_conditions)  #rouse
+cols <- as.numeric(myfactor)
+legend.cols <- as.numeric(as.factor(levels(myfactor)))
 
 ## create models
-#m.LL.4<-drm(y ~x,mylevels, fct = LL.4(names = c("Slope", "Lower", "Upper", "Midpoint or ED50"))) #4-parameter log-logistic (general parameters)
-#m.LL.4<-drm(y ~x,mylevels, fct = LL.4(names = c("Slope", "Lower", "Upper", "ED50"))) #4-parameter log-logistic (Dose-Response parameters)
-m.LL.4<-drm(y ~x,mylevels, fct = LL.4(names = c("F_max", "P_inf", "OE", "M"))) #4-parameter log-logistic  
-m.L.4 <-drm(y ~x,mylevels, fct = L.4()) #changing the fct = LL.4() to fct = L.4() allows plotting on a log10 scale
-m.LL2.4<-drm(y ~x,mylevels, fct = LL2.4()) #4-parameter log-logistic with log(e) rather than e as a parameter  
-m.LL2.5<-drm(y ~x,mylevels, fct = LL2.5()) #Generalised log-logistic
-m.LL.5<-drm(y ~x,mylevels, fct = LL.5()) #5-parameter logistic  
+#m.LL.4<-drm(y ~x,myfactor, fct = LL.4(names = c("Slope", "Lower", "Upper", "Midpoint or ED50"))) #4-parameter log-logistic (general parameters)
+#m.LL.4<-drm(y ~x,myfactor, fct = LL.4(names = c("Slope", "Lower", "Upper", "ED50"))) #4-parameter log-logistic (Dose-Response parameters)
+m.LL.4<-drm(y ~x,myfactor, fct = LL.4(names = c("F_max", "P_inf", "OE", "M"))) #4-parameter log-logistic  
+m.L.4 <-drm(y ~x,myfactor, fct = L.4()) #changing the fct = LL.4() to fct = L.4() allows plotting on a log10 scale
+m.LL2.4<-drm(y ~x,myfactor, fct = LL2.4()) #4-parameter log-logistic with log(e) rather than e as a parameter  
+m.LL2.5<-drm(y ~x,myfactor, fct = LL2.5()) #Generalised log-logistic
+m.LL.5<-drm(y ~x,myfactor, fct = LL.5()) #5-parameter logistic  
 
+#plot a few side by side
+par(mfrow = c(1, 2), oma = c(0, 0, 0, 0))
+plot(m.LL.4,log="",  broken = TRUE, bcontrol = list(style = "slash"), col = c(2,6,3,23,56), main = "4-parameter logistic")
+plot(m.LL2.5,log="",  broken = TRUE, bcontrol = list(style = "slash"), col = c(2,6,3,23,56), main = "5-parameter logistic")
+
+```
+
+
+## plot residuals of nonlinear models generated with library(drc)
+```{r}
+par(mfrow = c(3, 2), oma = c(0, 0, 0, 0))
+
+{plot(m.MM.3$predres, main = "Michaelis-Menten")  
+  abline(0,0)}
+{plot(m.W2.4$predres, main = "Weibull2") 
+  abline(0,0)}
+{plot(m.LL.4$predres, main = "4-parameter logistic") 
+  abline(0,0)}
+{plot(m.LL.5$predres, main = "5-parameter logistic") 
+  abline(0,0)}
+{plot(m.BC.5$predres, main = "Brain-Cousens (hormesis)") 
+  abline(0,0)}
+{plot(m.LL2.5$predres, main = "Generalised log-logistic") 
+  abline(0,0)}
+```
+
+
+from ??BC.5:  The model function for the Brain-Cousens model (Brain and Cousens, 1989) is
+$f(x, b,c,d,e,f) = c + \frac{d-c+fx}{1+\exp(b(\log(x)-\log(e)))}$
+(doesn't look any better than LL.4, not sure why I'm even looking...)
+
+```{r}
+#pick one model to be mymodel
 mymodel <- m.LL.4
-
-confint(mymodel)
-
-{plot(mymodel,log="",  broken = TRUE, bcontrol = list(style = "slash"), col = c(2,6,3,23,56), main = "impact of mylevels on estimated model paramaters")
-legend(34, 3.7, legend=c("roused","still"), fill=c("red", "pink"), title="mylevels")}
-
 mymodel
+confint(mymodel)
 summary(mymodel)
 
 ```
 
-Each level (rouse and still) has a unique curve shape and therefore different parameters for a best-fit log-logistic model.  Now that we know this, it is practical to address each set of conditions separately, and based on the LL.4 model above we have:
-
-for rouse = TRUE:
+Each level (rouse and still) has a unique curve shape thereby resulting in different parameters for a best-fit log-logistic model.  Now that we know this, it is practical to address each set of conditions separately. Based on the 4-parameter logistic model LL.4 we have for roused samples:
 
 $PLATO_{roused} = P_{inf}+  \frac{OE-P_{inf}}{1+e^{-F_{max}(daysonhops-M)}}$
 
 or
 
-$PLATO_{roused}  = 1.809 + \frac{1.94}{1+e^{-1.3925(daysonhops-12.272)}}$
+$PLATO_{roused}  = 1.809 + \frac{1.94}{1+e^{-1.3923(daysonhops-12.274)}}$
 
-and
+and for untouched (still) samples:
 
 $PLATO_{still}  = 2.149 + \frac{1.60}{1+e^{-1.8004(daysonhops-7.958)}}$
 
-Plotting and analysis options for multilevel models are limited, so let's move forward with a single set of conditions and a 'simple' single-level logistic model (expt=2a, rouse=TRUE).
+Plotting and analysis options for multilevel models are limited.  By filtering the data to focus on one set of conditions at a time we create 'simple' y~x logistic models. Many wonderful visualization tools are available for such x~y models.  Here's just a few:
 
-
-## unilevel logistic model with confidence intervals 
-```{r}
+## single level logistic model with confidence intervals 
+(specify eval=false in R  notebook codechunk header {r eval=FALSE} to prevent multiple messages regarding "Recycling array of length 1 in array-vector arithmetic is deprecated" from appearing in html)
+```{r eval=FALSE}
 df <- FPHcalc %>% filter(expt==" 2A" & rouse==TRUE) 
 df$PLATO.hopdrop <- df$initial_plato + df$delta.plato
 x <- as.numeric(df$daysonhops)
@@ -783,7 +800,7 @@ y <- df$PLATO.hopdrop
 ## create model
 mymodel<-drm(y ~x, fct = LL.4()) #4-parameter logistic with library(drc)
 
-plot(mymodel, main = "default")
+plot(mymodel, main = "default (logarithmic) x-axis")
 plot(mymodel, log="", main = "non-logarithmic x-axis")
 
 # create prediction intervals
@@ -794,6 +811,12 @@ pred95 <- as.data.frame(predict(mymodel, newdata, interval = "prediction", level
 pred95$x <- x
 pred999 <- as.data.frame(predict(mymodel, newdata, interval = "prediction", level = 0.999))
 pred999$x <- x
+mymodel
+```
+Note:  If you compare the multi-level model parameter estimates for rouse=TRUE with those for unilevel model based on rouse=TRUE subset, the results are similar, but not identical!
+
+## plot prediction confidence intervals
+```{r}
 
 # Asymmetric ribbons based on prediction intervals
 #newdata <- data.frame(y = c(3.5, 3, 2.9, 2.5,1.8,1.7), x = c(1,5,10,20,30,40))
@@ -815,37 +838,22 @@ geom_ribbon(data = conf95, aes(x = x, ymin = Lower, ymax = Upper),fill=I("purple
 
 ```
 
-Note:  If you compare the multi-level model parameter estimates for rouse=TRUE with those for unilevel model based on rouse=TRUE subset, the results are quite similar, but not identical!
-
-## plot residuals of nonlinear models generated in library(drc)
-```{r}
-par(mfrow = c(2, 2), oma = c(0, 0, 0, 0))
-
-plot(m.MM.3$predres)
-plot(m.LL.3$predres)
-plot(m.LL.4$predres)
-plot(m.LL.5$predres)
-```
-
 
 # summary
 
 For cases where 2016 Centennial hops are added to this particular base beer (sampled into 12oz bottles) near the end of primary fermentation at room temperature and bottles remain untouched (still), the 4-parameter logistic equation with the following sets of parameters is a reasonable model of the subsequent hop-induced plato drop:
-
-$PLATO_{still}  = 2.149 + \frac{1.60}{1+e^{-1.8004(daysonhops-7.958)}}$
-
+$PLATO_{still} = f(daysonhops)  = 2.149 + \frac{1.60}{1+e^{-1.8004(daysonhops-7.958)}}$
 
 The following 4-parameter logistic equation is a reasonable model for cases identical to the above, but where bottles are roused once daily:
+$PLATO_{roused} = f(daysonhops)  = 1.809 + \frac{1.94}{1+e^{-1.3925(daysonhops-12.272)}}$
 
-$PLATO_{roused}  = 1.809 + \frac{1.94}{1+e^{-1.3925(daysonhops-12.272)}}$
+The residuals for the 5-parameter logistic models are similar to those obtained for the 4-parameter equation, but in the case of unroused samples a visual inspection reveals very different curves.  The 4-parameter logistic predicts a much shorter "lag time" than does the 5-parameter logistic.  More data points in the days after dryhopping would shed light on the question as to which model is superior.
 
-Whereas the residual sum of squares for the 5-parameter logistic models was similar to those obtained for the 4-parameter equation, a visual inspection reveals that the 4-parameter equation is probably superior, in that the 4-parameter fit apparently does not [falsely?] predict a long lag time in the case of unroused samples.
-
-Only a single variable (rousing vs. still) among several hundred variables encompassing raw materials, machines, people and process resulted in quite different estimated parameters for a 4-parameter logistic model.  These results highlight the fact that all process variables that significantly impact the endpoints we wish to control must themselves be defined, controlled and/or documented if models such as these are to be used to characterize the process in question.  
-
+Only a single variable (rousing vs. still) among several hundred variables encompassing raw materials, machines, people and process resulted in quite different estimated parameters for a 4-parameter logistic model.  These results highlight the fact that all process variables known to significantly impact the endpoints we wish to control must themselves be defined, controlled and/or documented if models such as these are to be useful to characterize the process in question.  
 
 # bigchunk_tidytransform
-```{r}
+
+```{r bigchunk_tidytransform, echo=FALSE}
 mydata <-read.csv("ujbc_a_1469081_sm5496.txt",stringsAsFactors = FALSE)  ## SPECIFY filename
 
 ## fill in MISSING DATA :(  add time zero data for time series analysis)
@@ -876,20 +884,20 @@ write.csv(mydata, "quickie.csv", row.names = FALSE)
 mydata<-read.csv("quickie.csv", stringsAsFactors = FALSE)
 
 ###  this is a routine for inspecting data ###
-mydatatypes<- as.data.frame(cbind(sapply(mydata, class)))  ## table of datatypes
-mydatatypes$headers <- rownames(mydatatypes)    ## convert rownames to values
-na_count <-as.data.frame(sapply(mydata, function(y) sum(length(which(is.na(y)))))) ## count NAs by column
-mydataOverview<-as.data.frame(cbind(na_count,mydatatypes))  ## table of NA counts and datatypes
-names(mydataOverview) <- c("NA_count","Data_Class", "Header")
-sum(is.na(mydata))  ## total count of NA values in entire sheet (231 in this case)
-mydataOverview %>% filter(NA_count>0)    ## breakdown of NA values
+#mydatatypes<- as.data.frame(cbind(sapply(mydata, class)))  ## table of datatypes
+#mydatatypes$headers <- rownames(mydatatypes)    ## convert rownames to values
+#na_count <-as.data.frame(sapply(mydata, function(y) sum(length(which(is.na(y)))))) ## count NAs by column
+#mydataOverview<-as.data.frame(cbind(na_count,mydatatypes))  ## table of NA counts and datatypes
+#names(mydataOverview) <- c("NA_count","Data_Class", "Header")
+#sum(is.na(mydata))  ## total count of NA values in entire sheet (231 in this case)
+#mydataOverview %>% filter(NA_count>0)    ## breakdown of NA values
 
 datecols<- dput(names(dplyr::select(mydata, matches("date"))))  ## headers containing string "date" => c("brew_date", "sample_collection_date", "dryhop_date", "Test_Date")
 ## FORLOOP
 for (icol in datecols) {
   newcol = paste0(icol,".POSIXct")
  # print(newcol)
-  mydata[, newcol] = as.POSIXct(mydata[, icol],format = "%m/%d/%Y") ###  CREATE NEW columns with POSIXct   
+  mydata[, newcol] = as.POSIXct(mydata[, icol],format = "%m/%d/%Y") ###  CREATE NEW POSIXct columns   
 #  mydata[, newcol] = as.POSIXct(as.numeric(mydata[, icol])  * (60*60*24), origin="1899-12-30") ###  microsoft times
 }
 
@@ -993,7 +1001,7 @@ df<- FPHcalc %>% group_by(EXPTnew) %>%
 df
 ```
 
-
+#session info
 ```{r}
 sessionInfo()
 ```
