@@ -1,0 +1,30 @@
+---
+title: 'Maye2018:  Hidden Secrets of the NEIPA (TQ-55-4-1218-01.pdf)'
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+
+```{r pkgload, include=FALSE}
+library(pdftools)
+library(readxl)       ## import Microsoft Excel files
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(tidyverse) 
+```
+
+
+
+# import, tidy, scale, normalize
+```{r dataprep, echo=FALSE}
+rm(list = ls()) # clear workspace
+dat <- pdftools::pdf_text("TQ-55-4-1218-01.pdf")
+dat <- paste0(dat, collapse = " ")
+pattern <- "Beer\\s+Humulinones(.)*119"             ## pattern for Table 2
+extract <- regmatches(dat, regexpr(pattern, dat))
+extract <- gsub('\n', "  ", extract)
+myvector <- unlist(strsplit(extract, "\\s{2,}"))
+```
